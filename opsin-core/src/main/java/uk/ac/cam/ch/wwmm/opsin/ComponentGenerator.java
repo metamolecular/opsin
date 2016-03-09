@@ -71,11 +71,11 @@ class ComponentGenerator {
 	private static final Pattern matchCommaOrDot =Pattern.compile("[\\.,]");
 	private static final Pattern matchAnnulene = Pattern.compile("[\\[\\(\\{]([1-9]\\d*)[\\]\\)\\}]annulen");
 	private static final String elementSymbols ="(?:He|Li|Be|B|C|N|O|F|Ne|Na|Mg|Al|Si|P|S|Cl|Ar|K|Ca|Sc|Ti|V|Cr|Mn|Fe|Co|Ni|Cu|Zn|Ga|Ge|As|Se|Br|Kr|Rb|Sr|Y|Zr|Nb|Mo|Tc|Ru|Rh|Pd|Ag|Cd|In|Sn|Sb|Te|I|Xe|Cs|Ba|La|Ce|Pr|Nd|Pm|Sm|Eu|Gd|Tb|Dy|Ho|Er|Tm|Yb|Lu|Hf|Ta|W|Re|Os|Ir|Pt|Au|Hg|Tl|Pb|Po|At|Rn|Fr|Ra|Ac|Th|Pa|U|Np|Pu|Am|Cm|Bk|Cf|Es|Fm|Md|No|Lr|Rf|Db|Sg|Bh|Hs|Mt|Ds)";
-	private static final Pattern matchStereochemistry = Pattern.compile("(.*?)(SR|R/?S|[RSEZrsezabx]|[cC][iI][sS]|[tT][rR][aA][nN][sS]|[aA][lL][pP][hH][aA]|[bB][eE][tT][aA]|[xX][iI]|[eE][xX][oO]|[eE][nN][dD][oO]|[sS][yY][nN]|[aA][nN][tT][iI]|M|P|Ra|Sa|Sp|Rp)");
+	private static final Pattern matchStereochemistry = Pattern.compile("(.*?)(SR|R/?S|r/?s|[Ee][Zz]|[RSEZrsezabx]|[cC][iI][sS]|[tT][rR][aA][nN][sS]|[aA][lL][pP][hH][aA]|[bB][eE][tT][aA]|[xX][iI]|[eE][xX][oO]|[eE][nN][dD][oO]|[sS][yY][nN]|[aA][nN][tT][iI]|M|P|Ra|Sa|Sp|Rp)");
 	private static final Pattern matchStar = Pattern.compile("\\^?\\*");
-	private static final Pattern matchRacemic = Pattern.compile("rac(em(ic)?)?-?", Pattern.CASE_INSENSITIVE);
+	private static final Pattern matchRacemic = Pattern.compile("rac(\\.|em(\\.|ic)?)?-?", Pattern.CASE_INSENSITIVE);
 	private static final Pattern matchRS = Pattern.compile("[Rr]/?[Ss]?|[Ss][Rr]?");
-	private static final Pattern matchEZ = Pattern.compile("[EZez]");
+	private static final Pattern matchEZ = Pattern.compile("[EZez]|[Ee][Zz]");
 	private static final Pattern matchAlphaBetaStereochem = Pattern.compile("a|b|x|[aA][lL][pP][hH][aA]|[bB][eE][tT][aA]|[xX][iI]");
 	private static final Pattern matchCisTrans = Pattern.compile("[cC][iI][sS]|[tT][rR][aA][nN][sS]");
 	private static final Pattern matchEndoExoSynAnti = Pattern.compile("[eE][xX][oO]|[eE][nN][dD][oO]|[sS][yY][nN]|[aA][nN][tT][iI]");
@@ -124,7 +124,7 @@ class ComponentGenerator {
 
 		/* Converts open/close bracket elements to bracket elements and
 		 *  places the elements inbetween within the newly created bracket */
-		while(findAndStructureBrackets(substituentsAndRoot));
+		findAndStructureBrackets(substituentsAndRoot);
 		
 		for (Element subOrRoot: substituentsAndRoot) {
 			processHydroCarbonRings(subOrRoot);
@@ -237,25 +237,25 @@ class ComponentGenerator {
 		List<Element> locants = subOrRoot.getChildElements(LOCANT_EL);
 		for (Element locant : locants) {
 			List<String> individualLocants = splitIntoIndividualLocants(StringTools.removeDashIfPresent(locant.getValue()));
-			for (int i = 0; i < individualLocants.size(); i++) {
-				String locantText =individualLocants.get(i);
+			for (int i = 0, locantCount = individualLocants.size(); i <  locantCount; i++) {
+				String locantText = individualLocants.get(i);
 				
-				if (locantText.contains("-")){//avoids this regex being invoked typically
+				if (locantText.contains("-")) {//avoids this regex being invoked typically
 					//rearranges locant to the older equivalent form
-					Matcher m= matchIUPAC2004ElementLocant.matcher(locantText);
+					Matcher m = matchIUPAC2004ElementLocant.matcher(locantText);
 					if (m.matches()){
 						locantText = m.group(2) + m.group(1) + m.group(3);
 					}
 				}
 				
-				if (Character.isLetter(locantText.charAt(0))){
+				if (Character.isLetter(locantText.charAt(0))) {
 					//remove indications of superscript as the fact a locant is superscripted can be determined from context e.g. N~1~ ->N1
 					Matcher m =  matchSuperscriptedLocant.matcher(locantText);
-					if (m.lookingAt()){
-						String replacementString = m.group(1) +m.group(2);
+					if (m.lookingAt()) {
+						String replacementString = m.group(1) + m.group(2);
 						locantText = m.replaceFirst(replacementString);
 					}
-					if (locantText.length()>=3){
+					if (locantText.length() >= 3){
 						//convert greeks to lower case
 						m =  matchGreek.matcher(locantText);
 						while (m.find()) {
@@ -263,34 +263,41 @@ class ComponentGenerator {
 						}
 					}
 				}
-				char lastChar = locantText.charAt(locantText.length()-1);
-				if(lastChar == ')' || lastChar == ']' || lastChar == '}') {				
+				char lastChar = locantText.charAt(locantText.length() - 1);
+				if(lastChar == ')' || lastChar == ']' || lastChar == '}') {
 					//stereochemistry or added hydrogen that result from the application of this locant as a locant for a substituent may be included in brackets after the locant
 					
 					Matcher m = matchBracketAtEndOfLocant.matcher(locantText);
-					if (m.find()){
+					if (m.find()) {
 						String brackettedText = m.group(1);
-						if (StringTools.endsWithCaseInsensitive(brackettedText, "H")){
+						if (StringTools.endsWithCaseInsensitive(brackettedText, "H")) {
 							locantText = m.replaceFirst("");//strip the bracket from the locantText
 							//create individual tags for added hydrogen. Examples of bracketed text include "9H" or "2H,7H"
 							String[] addedHydrogens = MATCH_COMMA.split(brackettedText);
 							for (String addedHydrogen : addedHydrogens) {
-								Element addedHydrogenElement=new TokenEl(ADDEDHYDROGEN_EL);
-								addedHydrogenElement.addAttribute(new Attribute(LOCANT_ATR, addedHydrogen.substring(0, addedHydrogen.length()-1)));
+								Element addedHydrogenElement = new TokenEl(ADDEDHYDROGEN_EL);
+								addedHydrogenElement.addAttribute(new Attribute(LOCANT_ATR, addedHydrogen.substring(0, addedHydrogen.length() - 1)));
 								OpsinTools.insertBefore(locant, addedHydrogenElement);
 							}
-							if (locant.getAttribute(TYPE_ATR)==null){
+							if (locant.getAttribute(TYPE_ATR) == null){
 								locant.addAttribute(new Attribute(TYPE_ATR, ADDEDHYDROGENLOCANT_TYPE_VAL));//this locant must not be used as an indirect locant
 							}
 						}
 						else if (StringTools.endsWithCaseInsensitive(brackettedText, "R") || StringTools.endsWithCaseInsensitive(brackettedText, "S")){
 							locantText = m.replaceFirst("");//strip the bracket from the locantText
-							String rs = brackettedText;
-							Element newStereoChemEl = new TokenEl(STEREOCHEMISTRY_EL, "(" + locantText +rs+")");
+							String rs;
+							if (brackettedText.length() == 3 && (brackettedText.charAt(1) ==','|| brackettedText.charAt(1) =='/')) {
+								rs = new StringBuilder(2).append(brackettedText.charAt(0)).append(brackettedText.charAt(2)).toString();
+							}
+							else {
+								rs = brackettedText;
+							}
+	
+							Element newStereoChemEl = new TokenEl(STEREOCHEMISTRY_EL, "(" + locantText + rs + ")");
 							newStereoChemEl.addAttribute(new Attribute(TYPE_ATR, STEREOCHEMISTRYBRACKET_TYPE_VAL));
 							OpsinTools.insertBefore(locant, newStereoChemEl);
 						}
-						else if (matchDigit.matcher(brackettedText).matches()){
+						else if (matchDigit.matcher(brackettedText).matches()) {
 							//compounds locant e.g. 1(10). Leave as is, it will be handled by the function that handles unsaturation
 						}
 						else{
@@ -308,11 +315,11 @@ class ComponentGenerator {
 			locant.setValue(StringTools.stringListToString(individualLocants, ","));
 
 			Element afterLocants = OpsinTools.getNextSibling(locant);
-			if(afterLocants == null){
+			if(afterLocants == null) {
 				throw new ComponentGenerationException("Nothing after locant tag: " + locant.toXML());
 			}
 			
-			if (individualLocants.size()==1){
+			if (individualLocants.size() == 1) {
 				ifCarbohydrateLocantConvertToAminoAcidStyleLocant(locant);
 			}
 		}
@@ -325,12 +332,12 @@ class ComponentGenerator {
 	 * @param locant
 	 */
 	private static void ifCarbohydrateLocantConvertToAminoAcidStyleLocant(Element locant) {
-		if (MATCH_ELEMENT_SYMBOL.matcher(locant.getValue()).matches()){
+		if (MATCH_ELEMENT_SYMBOL.matcher(locant.getValue()).matches()) {
 			Element possibleMultiplier = OpsinTools.getPreviousSibling(locant);
-			if (possibleMultiplier!=null && possibleMultiplier.getName().equals(MULTIPLIER_EL)){
+			if (possibleMultiplier != null && possibleMultiplier.getName().equals(MULTIPLIER_EL)) {
 				int multiplierValue = Integer.parseInt(possibleMultiplier.getAttributeValue(VALUE_ATR));
 				Element possibleOtherLocant = OpsinTools.getPreviousSibling(possibleMultiplier);
-				if (possibleOtherLocant!=null){
+				if (possibleOtherLocant != null) {
 					String[] locantValues = MATCH_COMMA.split(possibleOtherLocant.getValue());
 					if (locantValues.length == Integer.parseInt(possibleMultiplier.getAttributeValue(VALUE_ATR))){
 						for (int i = 0; i < locantValues.length; i++) {
@@ -342,13 +349,13 @@ class ComponentGenerator {
 				}
 				else{
 					StringBuilder sb = new StringBuilder();
-					for (int i = 0; i < multiplierValue-1; i++) {
+					for (int i = 0; i < multiplierValue - 1; i++) {
 						sb.append(locant.getValue());
 						sb.append(StringTools.multiplyString("'", i));
 						sb.append(',');
 					}
 					sb.append(locant.getValue());
-					sb.append(StringTools.multiplyString("'", multiplierValue-1));
+					sb.append(StringTools.multiplyString("'", multiplierValue - 1));
 					Element newLocant = new TokenEl(LOCANT_EL, sb.toString());
 					OpsinTools.insertBefore(possibleMultiplier, newLocant);
 					locant.detach();
@@ -812,6 +819,7 @@ class ComponentGenerator {
 	 */
 	void processStereochemistry(Element subOrRoot) throws ComponentGenerationException {
 		List<Element> stereoChemistryElements = subOrRoot.getChildElements(STEREOCHEMISTRY_EL);
+		List<Element> locantedUnbrackettedEzTerms = new ArrayList<Element>();
 		for (Element stereoChemistryElement : stereoChemistryElements) {
 			if (stereoChemistryElement.getAttributeValue(TYPE_ATR).equals(STEREOCHEMISTRYBRACKET_TYPE_VAL)){
 				processStereochemistryBracket(stereoChemistryElement);
@@ -821,7 +829,9 @@ class ComponentGenerator {
 			}
 			else if (stereoChemistryElement.getAttributeValue(TYPE_ATR).equals(E_OR_Z_TYPE_VAL)){
 				stereoChemistryElement.addAttribute(new Attribute(VALUE_ATR, stereoChemistryElement.getValue().toUpperCase(Locale.ROOT)));
-				assignLocantUsingPreviousElementIfPresent(stereoChemistryElement);//assign a locant if one is directly before the E/Z
+				if (assignLocantUsingPreviousElementIfPresent(stereoChemistryElement)) {//assign a locant if one is directly before the E/Z
+					locantedUnbrackettedEzTerms.add(stereoChemistryElement);
+				}
 			}
 			else if (stereoChemistryElement.getAttributeValue(TYPE_ATR).equals(ENDO_EXO_SYN_ANTI_TYPE_VAL)){
 				processLocantAssigningForEndoExoSynAnti(stereoChemistryElement);//assign a locant if one is directly before the endo/exo/syn/anti. Don't neccesarily detach it
@@ -833,6 +843,9 @@ class ComponentGenerator {
 				processRelativeCisTrans(stereoChemistryElement);
 			}
 		}
+		if (locantedUnbrackettedEzTerms.size() > 0) {
+			duplicateLocantFromStereoTermIfAdjacentToEneOrYlidene(locantedUnbrackettedEzTerms);
+		}
 	}
 
 	private void processStereochemistryBracket(Element stereoChemistryElement) throws ComponentGenerationException {
@@ -841,8 +854,7 @@ class ComponentGenerator {
 			txt = txt.substring(4);
 		}
 		txt = StringTools.removeDashIfPresent(txt);
-		Matcher starMatcher = matchStar.matcher(txt);
-		txt = starMatcher.replaceAll("");
+		txt = matchStar.matcher(txt).replaceAll("");
 		boolean racemicStereo;
 		Matcher racemicMacher = matchRacemic.matcher(txt);
 		if (racemicMacher.lookingAt()) {
@@ -854,56 +866,69 @@ class ComponentGenerator {
 		}
 		if (txt.length() > 0) {//if txt is just "rel- or rac-" then it will be length 0 at this point
 			List<String> stereoChemistryDescriptors = splitStereoBracketIntoDescriptors(txt);
-		    for (String stereoChemistryDescriptor : stereoChemistryDescriptors) {
-		        Matcher m = matchStereochemistry.matcher(stereoChemistryDescriptor);
-		        if (m.matches()){
-	                Element stereoChemEl = new TokenEl(STEREOCHEMISTRY_EL, stereoChemistryDescriptor);
-	                String locantVal = m.group(1);
-	                if (locantVal.length() > 0){
-	                    stereoChemEl.addAttribute(new Attribute(LOCANT_ATR, StringTools.removeDashIfPresent(locantVal)));
-	                }
-		        	OpsinTools.insertBefore(stereoChemistryElement, stereoChemEl);
-	                if (matchRS.matcher(m.group(2)).matches()) {
-	                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, R_OR_S_TYPE_VAL));
-	                    String symbol = m.group(2).toUpperCase(Locale.ROOT).replaceAll("/", "");
-	                    if (racemicStereo && symbol.length() == 1){
-	                    	symbol = (symbol.equals("R")) ? "RS" : "SR";
-	                    }
-	                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, symbol));
-	                } else if (matchEZ.matcher(m.group(2)).matches()) {
-	                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, E_OR_Z_TYPE_VAL));
-	                    String symbol = m.group(2).toUpperCase(Locale.ROOT);
-	                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR,symbol));
-	                } else if (matchAlphaBetaStereochem.matcher(m.group(2)).matches()){
-	                	stereoChemEl.addAttribute(new Attribute(TYPE_ATR, ALPHA_OR_BETA_TYPE_VAL));
-	                	if (Character.toLowerCase(m.group(2).charAt(0)) == 'a'){
-	                    	stereoChemEl.addAttribute(new Attribute(VALUE_ATR, "alpha"));
-	                	}
-	                	else if (Character.toLowerCase(m.group(2).charAt(0)) == 'b'){
-	                    	stereoChemEl.addAttribute(new Attribute(VALUE_ATR, "beta"));
-	                	}
-	                 	else if (Character.toLowerCase(m.group(2).charAt(0)) == 'x'){
-	                    	stereoChemEl.addAttribute(new Attribute(VALUE_ATR, "xi"));
-	                	}
-	                	else{
-	                		throw new ComponentGenerationException("Malformed alpha/beta stereochemistry element: " + stereoChemistryElement.getValue());
-	                	}
-	        	 	} else if (matchCisTrans.matcher(m.group(2)).matches()) {
-	                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, CISORTRANS_TYPE_VAL));
-	                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, m.group(2).toLowerCase(Locale.ROOT)));
-	        	 	} else if (matchEndoExoSynAnti.matcher(m.group(2)).matches()) {
-	                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, ENDO_EXO_SYN_ANTI_TYPE_VAL));
-	                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, m.group(2).toLowerCase(Locale.ROOT)));
-	        	 	} else if (matchAxialStereo.matcher(m.group(2)).matches()) {
-	                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, AXIAL_TYPE_VAL));
-	                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, m.group(2)));
-	        	 	} else {
-	                    throw new ComponentGenerationException("Malformed stereochemistry element: " + stereoChemistryElement.getValue());
-	                }
-		        } else {
-		            throw new ComponentGenerationException("Malformed stereochemistry element: " + stereoChemistryElement.getValue());
-		        }
-		    }
+			boolean exclusiveStereoTerm = false;
+			if (stereoChemistryDescriptors.size() == 1){
+				String stereoChemistryDescriptor = stereoChemistryDescriptors.get(0);
+				if (stereoChemistryDescriptor.equalsIgnoreCase("rel")){
+					exclusiveStereoTerm = true;
+				}
+				if (matchRacemic.matcher(stereoChemistryDescriptor).matches()) {
+					racemicStereo = true;
+					exclusiveStereoTerm = true;
+				}
+			}
+			if (!exclusiveStereoTerm) {
+			    for (String stereoChemistryDescriptor : stereoChemistryDescriptors) {
+			        Matcher m = matchStereochemistry.matcher(stereoChemistryDescriptor);
+			        if (m.matches()){
+		                Element stereoChemEl = new TokenEl(STEREOCHEMISTRY_EL, stereoChemistryDescriptor);
+		                String locantVal = m.group(1);
+		                if (locantVal.length() > 0){
+		                    stereoChemEl.addAttribute(new Attribute(LOCANT_ATR, StringTools.removeDashIfPresent(locantVal)));
+		                }
+			        	OpsinTools.insertBefore(stereoChemistryElement, stereoChemEl);
+		                if (matchRS.matcher(m.group(2)).matches()) {
+		                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, R_OR_S_TYPE_VAL));
+		                    String symbol = m.group(2).toUpperCase(Locale.ROOT).replaceAll("/", "");
+		                    if (racemicStereo && symbol.length() == 1){
+		                    	symbol = (symbol.equals("R")) ? "RS" : "SR";
+		                    }
+		                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, symbol));
+		                } else if (matchEZ.matcher(m.group(2)).matches()) {
+		                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, E_OR_Z_TYPE_VAL));
+		                    String symbol = m.group(2).toUpperCase(Locale.ROOT);
+		                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR,symbol));
+		                } else if (matchAlphaBetaStereochem.matcher(m.group(2)).matches()){
+		                	stereoChemEl.addAttribute(new Attribute(TYPE_ATR, ALPHA_OR_BETA_TYPE_VAL));
+		                	if (Character.toLowerCase(m.group(2).charAt(0)) == 'a'){
+		                    	stereoChemEl.addAttribute(new Attribute(VALUE_ATR, "alpha"));
+		                	}
+		                	else if (Character.toLowerCase(m.group(2).charAt(0)) == 'b'){
+		                    	stereoChemEl.addAttribute(new Attribute(VALUE_ATR, "beta"));
+		                	}
+		                 	else if (Character.toLowerCase(m.group(2).charAt(0)) == 'x'){
+		                    	stereoChemEl.addAttribute(new Attribute(VALUE_ATR, "xi"));
+		                	}
+		                	else{
+		                		throw new ComponentGenerationException("Malformed alpha/beta stereochemistry element: " + stereoChemistryElement.getValue());
+		                	}
+		        	 	} else if (matchCisTrans.matcher(m.group(2)).matches()) {
+		                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, CISORTRANS_TYPE_VAL));
+		                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, m.group(2).toLowerCase(Locale.ROOT)));
+		        	 	} else if (matchEndoExoSynAnti.matcher(m.group(2)).matches()) {
+		                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, ENDO_EXO_SYN_ANTI_TYPE_VAL));
+		                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, m.group(2).toLowerCase(Locale.ROOT)));
+		        	 	} else if (matchAxialStereo.matcher(m.group(2)).matches()) {
+		                    stereoChemEl.addAttribute(new Attribute(TYPE_ATR, AXIAL_TYPE_VAL));
+		                    stereoChemEl.addAttribute(new Attribute(VALUE_ATR, m.group(2)));
+		        	 	} else {
+		                    throw new ComponentGenerationException("Malformed stereochemistry element: " + stereoChemistryElement.getValue());
+		                }
+			        } else {
+			            throw new ComponentGenerationException("Malformed stereochemistry element: " + stereoChemistryElement.getValue());
+			        }
+			    }
+			}
 		}
 		stereoChemistryElement.detach();
 	}
@@ -937,12 +962,14 @@ class ComponentGenerator {
 		return stereoDescriptors;
 	}
 
-	private void assignLocantUsingPreviousElementIfPresent(Element stereoChemistryElement) {
+	private boolean assignLocantUsingPreviousElementIfPresent(Element stereoChemistryElement) {
 		Element possibleLocant = OpsinTools.getPrevious(stereoChemistryElement);
 		if (possibleLocant !=null && possibleLocant.getName().equals(LOCANT_EL) && MATCH_COMMA.split(possibleLocant.getValue()).length==1){
 			stereoChemistryElement.addAttribute(new Attribute(LOCANT_ATR, possibleLocant.getValue()));
 			possibleLocant.detach();
+			return true;
 		}
+		return false;
 	}
 	
 	private void processLocantAssigningForEndoExoSynAnti(Element stereoChemistryElement) {
@@ -1031,6 +1058,57 @@ class ComponentGenerator {
 		}
 		Element locantEl = new TokenEl(LOCANT_EL, sb.toString());
 		OpsinTools.insertAfter(stereoChemistryElement, locantEl);
+	}
+	
+	/**
+	 * If the e/z term is next to an ene or ylidene duplicate the locant
+	 * e.g. 2E,4Z-diene --> 2E,4Z-2,4-diene
+	 * 2E-ylidene --> 2E-2-ylidene
+	 * @param locantedUnbrackettedEzTerms
+	 */
+	private void duplicateLocantFromStereoTermIfAdjacentToEneOrYlidene(List<Element> locantedUnbrackettedEzTerms) {
+		for (int i = 0, l = locantedUnbrackettedEzTerms.size(); i < l; i++) {
+			Element currentTerm = locantedUnbrackettedEzTerms.get(i);
+			List<Element> groupedTerms = new ArrayList<Element>();
+			groupedTerms.add(currentTerm);
+			while (i + 1 < l && locantedUnbrackettedEzTerms.get(i + 1).equals(OpsinTools.getNextSibling(currentTerm))) {
+				currentTerm = locantedUnbrackettedEzTerms.get(++i);
+				groupedTerms.add(currentTerm);
+			}
+			Element lastTermInGroup = groupedTerms.get(groupedTerms.size() - 1);
+			Element eneOrYlidene;
+			if (groupedTerms.size() > 1) {
+				Element multiplier = OpsinTools.getNextSibling(lastTermInGroup);
+				if (!(multiplier != null && multiplier.getName().equals(MULTIPLIER_EL) && String.valueOf(groupedTerms.size()).equals(multiplier.getAttributeValue(VALUE_ATR)))) {
+					continue;
+				}
+				eneOrYlidene = OpsinTools.getNextSibling(multiplier);
+			}
+			else {
+				eneOrYlidene = OpsinTools.getNextSibling(lastTermInGroup);
+			}
+			if (eneOrYlidene != null) {
+				String name = eneOrYlidene.getName();
+				if (name.equals(UNSATURATOR_EL) || name.equals(SUFFIX_EL)) {
+						if ((name.equals(UNSATURATOR_EL) && eneOrYlidene.getAttributeValue(VALUE_ATR).equals("2"))
+								|| (name.equals(SUFFIX_EL) && eneOrYlidene.getAttributeValue(VALUE_ATR).equals("ylidene"))) {
+						List<String> locants = new ArrayList<String>();
+						for (Element stereochemistryTerm : groupedTerms) {
+							locants.add(stereochemistryTerm.getAttributeValue(LOCANT_ATR));
+						}
+						Element newLocant = new TokenEl(LOCANT_EL, StringTools.stringListToString(locants, ","));
+						OpsinTools.insertAfter(lastTermInGroup, newLocant);
+					} else{
+						if (name.equals(UNSATURATOR_EL)){
+							throw new RuntimeException("After E/Z stereo expected ene but found: " + eneOrYlidene.getValue());
+						}
+						else {
+							throw new RuntimeException("After E/Z stereo expected yldiene but found: " + eneOrYlidene.getValue());
+						}
+					}
+				}
+			}
+		}
 	}
 
 	/**
@@ -1273,28 +1351,33 @@ class ComponentGenerator {
 	 * elements contained within in a big &lt;bracket&gt; element.
 	 *
 	 * @param substituentsAndRoot: The substituent/root elements at the current level of the tree
-	 * @return Whether the method did something, and so needs to be called again.
 	 * @throws ComponentGenerationException
 	 */
-	private boolean findAndStructureBrackets(List<Element> substituentsAndRoot) throws ComponentGenerationException {
+	private void findAndStructureBrackets(List<Element> substituentsAndRoot) throws ComponentGenerationException {
 		int blevel = 0;
 		Element openBracket = null;
-		Element closeBracket = null;
+		boolean nestedBrackets = false;
 		for (Element sub : substituentsAndRoot) {
 			List<Element> children = sub.getChildElements();
 			for (Element child : children) {
-				if(child.getName().equals(OPENBRACKET_EL)) {
+				String name = child.getName();
+				if(name.equals(OPENBRACKET_EL)) {
+					blevel++;
 					if(openBracket == null) {
 						openBracket = child;
 					}
-					blevel++;
-				} else if (child.getName().equals(CLOSEBRACKET_EL)) {
+					else {
+						nestedBrackets = true;
+					}
+				} else if (name.equals(CLOSEBRACKET_EL)) {
 					blevel--;
 					if(blevel == 0) {
-						closeBracket = child;
-						Element bracket = structureBrackets(openBracket, closeBracket);
-						while(findAndStructureBrackets(OpsinTools.getDescendantElementsWithTagName(bracket, SUBSTITUENT_EL)));
-						return true;
+						Element bracket = structureBrackets(openBracket, child);
+						if (nestedBrackets) {
+							findAndStructureBrackets(OpsinTools.getDescendantElementsWithTagNames(bracket, new String[]{SUBSTITUENT_EL, ROOT_EL}));
+						}
+						openBracket = null;
+						nestedBrackets = false;
 					}
 				}
 			}
@@ -1302,7 +1385,6 @@ class ComponentGenerator {
 		if (blevel != 0){
 			throw new ComponentGenerationException("Brackets do not match!");
 		}
-		return false;
 	}
 
 	/**Places the elements in substituents containing/between an open and close bracket
@@ -1315,23 +1397,24 @@ class ComponentGenerator {
 	 */
 	private Element structureBrackets(Element openBracket, Element closeBracket) throws ComponentGenerationException {
 		Element bracket = new GroupingEl(BRACKET_EL);
-		OpsinTools.insertBefore(openBracket.getParent(), bracket);
+		Element currentEl = openBracket.getParent();
+		OpsinTools.insertBefore(currentEl, bracket);
 		/* Pick up everything in the substituent before the bracket*/
-		while(!openBracket.getParent().getChild(0).equals(openBracket)) {
-			Element n = openBracket.getParent().getChild(0);
-			n.detach();
-			bracket.addChild(n);
+		Element firstChild = currentEl.getChild(0);
+		while(!firstChild.equals(openBracket)) {
+			firstChild.detach();
+			bracket.addChild(firstChild);
+			firstChild = currentEl.getChild(0);
 		}
 		/* Pick up all elements from the one with the open bracket,
 		 * to the one with the close bracket, inclusive.
 		 */
-		Element currentEl = openBracket.getParent();
 		while(!currentEl.equals(closeBracket.getParent())) {
 			Element nextEl = OpsinTools.getNextSibling(currentEl);
 			currentEl.detach();
 			bracket.addChild(currentEl);
 			currentEl = nextEl;
-			if (currentEl==null){
+			if (currentEl == null) {
 				throw new ComponentGenerationException("Brackets within a word do not match!");
 			}
 		}
@@ -1347,7 +1430,6 @@ class ComponentGenerator {
 		}
 		openBracket.detach();
 		closeBracket.detach();
-	
 		return bracket;
 	}
 
@@ -1660,7 +1742,7 @@ class ComponentGenerator {
 
 		Element multiplier = OpsinTools.getPreviousSibling(spiroEl);
 		int numberOfSpiros = 1;
-		if (multiplier != null && multiplier.getName().equals(MULTIPLIER_EL)){
+		if (multiplier != null && multiplier.getName().equals(MULTIPLIER_EL) && BASIC_TYPE_VAL.equals(multiplier.getAttributeValue(TYPE_ATR))) {
 			numberOfSpiros = Integer.parseInt(multiplier.getAttributeValue(VALUE_ATR));
 			multiplier.detach();
 		}
@@ -2101,7 +2183,7 @@ class ComponentGenerator {
 				}
 			}
 		}
-		
+
 		if(groupValue.equals("thiophen") || groupValue.equals("selenophen") || groupValue.equals("tellurophen")) {//thiophenol is generally phenol with an O replaced with S not thiophene with a hydroxy
 			Element possibleSuffix = OpsinTools.getNextSibling(group);
 			if (!"e".equals(group.getAttributeValue(SUBSEQUENTUNSEMANTICTOKEN_ATR)) && possibleSuffix !=null && possibleSuffix.getName().equals(SUFFIX_EL)) {
@@ -2394,7 +2476,8 @@ class ComponentGenerator {
 				OpsinTools.insertBefore(enclosingSubOrRoot, newBracket);
 			}
 		}
-		else if (groupValue.equals("sphinganine") || groupValue.equals("icosasphinganine") || groupValue.equals("eicosasphinganine") || groupValue.equals("phytosphingosine") || groupValue.equals("sphingosine")){
+		else if (groupValue.equals("sphinganine") || groupValue.equals("icosasphinganine") || groupValue.equals("eicosasphinganine") || groupValue.equals("phytosphingosine") || groupValue.equals("sphingosine")
+				|| groupValue.equals("sphinganin") || groupValue.equals("icosasphinganin") || groupValue.equals("eicosasphinganin") || groupValue.equals("phytosphingosin") || groupValue.equals("sphingosin")){
 			Element enclosingSubOrRoot = group.getParent();
 			Element previous = OpsinTools.getPreviousSibling(enclosingSubOrRoot);
 			if (previous!=null){
@@ -2468,9 +2551,9 @@ class ComponentGenerator {
 			}
 		}
 		else if (groupValue.equals("bor") || groupValue.equals("antimon") 
-				|| groupValue.equals("arsen") || groupValue.equals("phosphor") || groupValue.equals("phosphate")
+				|| groupValue.equals("arsen") || groupValue.equals("phosphor") || groupValue.equals("phosphate") || groupValue.equals("phosphat")
 				|| groupValue.equals("silicicacid") || groupValue.equals("silicic acid")
-				|| groupValue.equals("silicate")){//fluoroboric acid/fluoroborate are trivial rather than systematic; tetra(fooyl)borate is inorganic
+				|| groupValue.equals("silicate") || groupValue.equals("silicat")){//fluoroboric acid/fluoroborate are trivial rather than systematic; tetra(fooyl)borate is inorganic
 			Element suffix = null;
 			Boolean isAcid = null;
 			if (groupValue.endsWith("acid")){
@@ -2478,7 +2561,7 @@ class ComponentGenerator {
 					isAcid = true;
 				}
 			}
-			else if (groupValue.endsWith("ate")){
+			else if (groupValue.endsWith("ate") || groupValue.endsWith("at")){
 				if (OpsinTools.getNext(group) == null){
 					isAcid = false;
 				}
@@ -2567,6 +2650,32 @@ class ComponentGenerator {
 							suffix.detach();
 						}
 					}
+				}
+			}
+		}
+		else if (SALTCOMPONENT_SUBTYPE_VAL.equals(group.getAttributeValue(SUBTYPE_ATR))) {
+			Element parse = null;
+			Element tempParent = group.getParent();
+			while (tempParent != null) {
+				parse = tempParent;
+				tempParent = tempParent.getParent();
+			}
+			if (parse.getChildCount() <= 1) {
+				throw new ComponentGenerationException("Group expected to be part of a salt but only one component found. Could be a class of compound: " + groupValue);
+			}
+			if (groupValue.length() > 0) {
+				//e.g. 2HCl
+				char firstChar = groupValue.charAt(0);
+				if (firstChar >= '1' && firstChar <= '9') {
+					Element shouldntBeAmultiplier= OpsinTools.getPreviousSibling(group);
+					if (shouldntBeAmultiplier != null && shouldntBeAmultiplier.getName().equals(MULTIPLIER_EL)) {
+						throw new ComponentGenerationException("Unepxected multiplier found before: " + groupValue);
+					}
+					Element multiplier = new TokenEl(MULTIPLIER_EL, String.valueOf(firstChar));
+					multiplier.addAttribute(TYPE_ATR, BASIC_TYPE_VAL);
+					multiplier.addAttribute(VALUE_ATR, String.valueOf(firstChar));
+					OpsinTools.insertBefore(group, multiplier);
+					group.setValue(groupValue.substring(1));
 				}
 			}
 		}

@@ -94,7 +94,7 @@ public class CASToolsTest {
 	@Test
 	public void cas12() throws ParsingException{
 		String name = CASTools.uninvertCASName("Ethanimidic acid, N-nitro-, (1Z)-", parseRules);
-		assertEquals("N-nitro-(1Z)-Ethanimidic acid", name);
+		assertEquals("(1Z)-N-nitro-Ethanimidic acid", name);
 	}
 
 	@Test
@@ -156,6 +156,20 @@ public class CASToolsTest {
 		String name = CASTools.uninvertCASName("L-Alanine, N-carboxy-, 1-ethyl ester", parseRules);
 		assertEquals("1-ethyl N-carboxy-L-Alaninate", name);
 	}
+	
+	@Test
+	public void cas23() throws ParsingException{
+		String name = CASTools.uninvertCASName("Pyridine, 3-(tetrahydro-2H-pyran-2-yl)-, (S)-", parseRules);
+		assertEquals("(S)-3-(tetrahydro-2H-pyran-2-yl)-Pyridine", name);
+	}
+	
+	@Test
+	public void cas24() throws ParsingException{
+		String name = CASTools.uninvertCASName("Pyrrolo[1,2-a]pyrimidinium, 1-[4-[(aminoiminomethyl)amino]butyl]-7-[[2-[(aminoiminomethyl)-amino]ethyl]thio]-6-(11-dodecenyl)-2,3,4,6,7,8-hexahydro-6-hydroxy-, chloride, dihydrochloride", parseRules);
+		assertEquals("1-[4-[(aminoiminomethyl)amino]butyl]-7-[[2-[(aminoiminomethyl)-amino]ethyl]thio]-6-(11-dodecenyl)-2,3,4,6,7,8-hexahydro-6-hydroxy-Pyrrolo[1,2-a]pyrimidinium chloride dihydrochloride", name);
+	}
+	
+	
 
 	@Test(expected=ParsingException.class)
 	public void notCas1() throws ParsingException{

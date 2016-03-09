@@ -176,7 +176,7 @@ class ResourceManager {
 		}
 		
 		int index = Arrays.binarySearch(chemicalAutomaton.getCharIntervals(), symbol);
-		if (index < 0){
+		if (index < 0) {
 			throw new RuntimeException(symbol +" is associated with a tokenList of tagname " + tokenTagName +" however it is not actually used in OPSIN's grammar!!!");
 		}
 		
@@ -185,41 +185,39 @@ class ResourceManager {
 			case XMLStreamConstants.START_ELEMENT:
 				if (reader.getLocalName().equals("token")) {
 					TokenEl el;
-					if (ignoreWhenWritingXML){
+					if (ignoreWhenWritingXML) {
 						el = IGNORE_WHEN_WRITING_PARSE_TREE;
 					}
 					else{
 						el = new TokenEl(tokenTagName);
-						if (type != null){
+						if (type != null) {
 							el.addAttribute(TYPE_ATR, type);
 						}
-						if (subType != null){
+						if (subType != null) {
 							el.addAttribute(SUBTYPE_ATR, subType);
 						}
 						for (int i = 0, l = reader.getAttributeCount(); i < l; i++) {
 							el.addAttribute(reader.getAttributeLocalName(i), reader.getAttributeValue(i));
 						}
 					}
-					String t = reader.getElementText();
-					Map<Character, TokenEl> symbolToToken = tokenDict.get(t);
-					if(symbolToToken == null) {
-						symbolToToken = new HashMap<Character, TokenEl>();
-						tokenDict.put(t, symbolToToken);
-					}
-					symbolToToken.put(symbol, el);
-
-					if (!reversed){
-						if(symbolTokenNamesDict[index]==null) {
-							symbolTokenNamesDict[index] = new OpsinRadixTrie();
+					String text = reader.getElementText();
+					StringBuilder sb = new StringBuilder(text.length());
+					for (int i = 0, len = text.length(); i < len; i++) {
+						char ch = text.charAt(i);
+						if (ch == '\\') {
+							if (i + 1 >= len) {
+								throw new RuntimeException("Malformed token text: " + text);
+							}
+							ch = text.charAt(++i);
 						}
-						symbolTokenNamesDict[index].addToken(t);
-					}
-					else{
-						if(symbolTokenNamesDictReversed[index]==null) {
-							symbolTokenNamesDictReversed[index] = new OpsinRadixTrie();
+						else if (ch == '|') {
+							addToken(sb.toString(), el, symbol, index, reversed);
+							sb.setLength(0);
+							continue;
 						}
-						symbolTokenNamesDictReversed[index].addToken(new StringBuilder(t).reverse().toString());
+						sb.append(ch);
 					}
+					addToken(sb.toString(), el, symbol, index, reversed);
 				}
 				break;
 			case XMLStreamConstants.END_ELEMENT:
@@ -228,6 +226,32 @@ class ResourceManager {
 				}
 				break;
 			}
+		}
+	}
+
+	private void addToken(String text, TokenEl el, Character symbol, int index, boolean reversed) {
+		Map<Character, TokenEl> symbolToToken = tokenDict.get(text);
+		if(symbolToToken == null) {
+			symbolToToken = new HashMap<Character, TokenEl>();
+			tokenDict.put(text, symbolToToken);
+		}
+		symbolToToken.put(symbol, el);
+
+		if (!reversed){
+			OpsinRadixTrie trie = symbolTokenNamesDict[index];
+			if(trie == null) {
+				trie = new OpsinRadixTrie();
+				symbolTokenNamesDict[index] = trie;
+			}
+			trie.addToken(text);
+		}
+		else{
+			OpsinRadixTrie trie = symbolTokenNamesDictReversed[index];
+			if(trie == null) {
+				trie = new OpsinRadixTrie();
+				symbolTokenNamesDictReversed[index] = trie;
+			}
+			trie.addToken(new StringBuilder(text).reverse().toString());
 		}
 	}
 

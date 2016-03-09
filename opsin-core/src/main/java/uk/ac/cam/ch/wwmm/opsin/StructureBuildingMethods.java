@@ -864,7 +864,6 @@ class StructureBuildingMethods {
 		if (bondsThatCouldBeUnsaturated.size() < numToUnsaturate){
 			throw new StructureBuildingException("Failed to find bond to change to a bond of order: " + bondOrder);
 		}
-
 		if (bondsThatCouldBeUnsaturated.size() > numToUnsaturate) {
 			//by convention cycloalkanes can have one unsaturation implicitly at the 1 locant
 			//terms like oxazoline are formally ambiguous but in practice the lowest locant is the one that will be intended (in this case 2-oxazoline)
@@ -1076,7 +1075,8 @@ class StructureBuildingMethods {
 					incomingValency += bond.getOrder();
 				}
 			}
-			Integer maxVal = ValencyChecker.getMaximumValency(atom1);
+			
+			Integer maxVal = getLambdaValencyOrHwValencyOrMaxValIfCharged(atom1);
 			if(maxVal != null && (incomingValency + (bondOrder - 1) + atom1.getOutValency()) > maxVal) {
 				continue;
 			}
@@ -1104,7 +1104,7 @@ class StructureBuildingMethods {
 							}
 						}
 						
-						Integer maxVal2 = ValencyChecker.getMaximumValency(atom2);
+						Integer maxVal2 = getLambdaValencyOrHwValencyOrMaxValIfCharged(atom2);
 						if(maxVal2 != null && (incomingValency2 + (bondOrder - 1) + atom2.getOutValency()) > maxVal2) {
 							continue;
 						}
@@ -1115,6 +1115,27 @@ class StructureBuildingMethods {
 			}
 		}
 		return bondsToUnsaturate;
+	}
+	
+	
+	/**
+	 * Return the lambda convention derived valency + protons if set
+	 * Otherwise if charge is 0 returns {@link ValencyChecker#getHWValency(ChemEl)}
+	 * Otherwise return {@link ValencyChecker#getMaximumValency(ChemEl, int)} 
+	 * Returns null if the maximum valency is not known
+	 * @param a
+	 * @return
+	 */
+	static Integer getLambdaValencyOrHwValencyOrMaxValIfCharged(Atom a) {
+		if (a.getLambdaConventionValency() != null) {
+			return a.getLambdaConventionValency() + a.getProtonsExplicitlyAddedOrRemoved();
+		}
+		else if (a.getCharge() == 0){
+			return ValencyChecker.getHWValency(a.getElement());
+		}
+		else {
+			return ValencyChecker.getMaximumValency(a.getElement(), a.getCharge());
+		}
 	}
 
 	private static void performAdditiveOperations(BuildState state, Element subBracketOrRoot) throws StructureBuildingException {
@@ -2065,10 +2086,31 @@ class StructureBuildingMethods {
 
 	static Element findRightMostGroupInBracket(Element bracket) {
 		List<Element> subsBracketsAndRoots = OpsinTools.getChildElementsWithTagNames(bracket, new String[]{BRACKET_EL, SUBSTITUENT_EL, ROOT_EL});
-		while (subsBracketsAndRoots.get(subsBracketsAndRoots.size() - 1).getName().equals(BRACKET_EL)){
-			subsBracketsAndRoots = OpsinTools.getChildElementsWithTagNames(subsBracketsAndRoots.get(subsBracketsAndRoots.size() - 1), new String[]{BRACKET_EL, SUBSTITUENT_EL, ROOT_EL});
+		Element lastSubsBracketOrRoot = subsBracketsAndRoots.get(subsBracketsAndRoots.size() - 1);
+		while (lastSubsBracketOrRoot.getName().equals(BRACKET_EL)) {
+			subsBracketsAndRoots = OpsinTools.getChildElementsWithTagNames(lastSubsBracketOrRoot, new String[]{BRACKET_EL, SUBSTITUENT_EL, ROOT_EL});
+			lastSubsBracketOrRoot = subsBracketsAndRoots.get(subsBracketsAndRoots.size() - 1);
 		}
-		return subsBracketsAndRoots.get(subsBracketsAndRoots.size() - 1).getFirstChildElement(GROUP_EL);
+		return findRightMostGroupInSubOrRoot(lastSubsBracketOrRoot);
+	}
+	
+	static Element findRightMostGroupInSubBracketOrRoot(Element subBracketOrRoot) {
+		if (subBracketOrRoot.getName().equals(BRACKET_EL)) {
+			return findRightMostGroupInBracket(subBracketOrRoot);
+		}
+		else {
+			return findRightMostGroupInSubOrRoot(subBracketOrRoot);
+		}
+	}
+
+	private static Element findRightMostGroupInSubOrRoot(Element subOrRoot) {
+		for (int i = subOrRoot.getChildCount() - 1; i >= 0; i--) {
+			Element el = subOrRoot.getChild(i);
+			if (el.getName().equals(GROUP_EL)) {
+				return el;
+			}
+		}
+		return null;
 	}
 
 	private static boolean potentiallyCanSubstitute(Element subBracketOrRoot) {

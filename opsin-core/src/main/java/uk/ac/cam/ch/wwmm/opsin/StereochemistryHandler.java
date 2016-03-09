@@ -128,7 +128,7 @@ class StereochemistryHandler {
 			}
 		}
 		else if (stereoChemistryType.equals(ALPHA_OR_BETA_TYPE_VAL)){
-			assignAlphaBetaStereochem(stereoChemistryEl);
+			assignAlphaBetaXiStereochem(stereoChemistryEl);
 		}
 		else if (stereoChemistryType.equals(ENDO_EXO_SYN_ANTI_TYPE_VAL)){
 			throw new StereochemistryException(stereoChemistryType + " stereochemistry is not currently interpretable by OPSIN");
@@ -190,51 +190,20 @@ class StereochemistryHandler {
 		String locant = stereoChemistryEl.getAttributeValue(LOCANT_ATR);
 		String rOrS = stereoChemistryEl.getAttributeValue(VALUE_ATR);
 		for (Fragment fragment : possibleFragments) {
-			if (locant ==null){//undefined locant
-				List<Atom> atomList = fragment.getAtomList();
-				for (Atom potentialStereoAtom : atomList) {
-					if (notExplicitlyDefinedStereoCentreMap.containsKey(potentialStereoAtom)){
-						applyStereoChemistryToStereoCentre(potentialStereoAtom, notExplicitlyDefinedStereoCentreMap.get(potentialStereoAtom), rOrS);
-						notExplicitlyDefinedStereoCentreMap.remove(potentialStereoAtom);
-						return;
-					}
-				}
-			}
-			else{
-				Atom potentialStereoAtom = fragment.getAtomByLocant(locant);
-				if (potentialStereoAtom !=null && notExplicitlyDefinedStereoCentreMap.containsKey(potentialStereoAtom)){
-					applyStereoChemistryToStereoCentre(potentialStereoAtom, notExplicitlyDefinedStereoCentreMap.get(potentialStereoAtom), rOrS);
-					notExplicitlyDefinedStereoCentreMap.remove(potentialStereoAtom);
-					return;
-				}
+			if (attemptAssignmentOfStereoCentreToFragment(fragment, rOrS, locant)) {
+				return;
 			}
 		}
 		Element possibleWordParent = parentSubBracketOrRoot.getParent();
 		if (possibleWordParent.getName().equals(WORD_EL) && possibleWordParent.getChild(0).equals(parentSubBracketOrRoot)){
 			//something like (3R,4R,5R)-ethyl 4-acetamido-5-amino-3-(pentan-3-yloxy)cyclohex-1-enecarboxylate
-			//I think this is a violation of the IUPAC rules...but anyway...
+			//i.e. the stereochemistry is in a different word to what it is applied to
 			List<Element> words = OpsinTools.getNextSiblingsOfType(possibleWordParent, WORD_EL);
 			for (Element word : words) {
 				List<Element> possibleGroups = OpsinTools.getDescendantElementsWithTagName(word, GROUP_EL);
 				for (int i = possibleGroups.size()-1; i >=0; i--) {
-					Fragment correspondingFrag = possibleGroups.get(i).getFrag();
-					if (locant == null){//undefined locant
-						List<Atom> atomList = correspondingFrag.getAtomList();
-						for (Atom potentialStereoAtom : atomList) {
-							if (notExplicitlyDefinedStereoCentreMap.containsKey(potentialStereoAtom)){
-								applyStereoChemistryToStereoCentre(potentialStereoAtom, notExplicitlyDefinedStereoCentreMap.get(potentialStereoAtom), rOrS);
-								notExplicitlyDefinedStereoCentreMap.remove(potentialStereoAtom);
-								return;
-							}
-						}
-					}
-					else{
-						Atom potentialStereoAtom = correspondingFrag.getAtomByLocant(locant);
-						if (potentialStereoAtom !=null && notExplicitlyDefinedStereoCentreMap.containsKey(potentialStereoAtom)){
-							applyStereoChemistryToStereoCentre(potentialStereoAtom, notExplicitlyDefinedStereoCentreMap.get(potentialStereoAtom), rOrS);
-							notExplicitlyDefinedStereoCentreMap.remove(potentialStereoAtom);
-							return;
-						}
+					if (attemptAssignmentOfStereoCentreToFragment(possibleGroups.get(i).getFrag(), rOrS, locant)) {
+						return;
 					}
 				}
 			}
@@ -242,6 +211,28 @@ class StereochemistryHandler {
 		throw new StereochemistryException("Could not find atom that: " + stereoChemistryEl.toXML() + " appeared to be referring to");
 	}
 
+
+	private boolean attemptAssignmentOfStereoCentreToFragment(Fragment fragment, String rOrS, String locant) throws StereochemistryException, StructureBuildingException {
+		if (locant == null) {//undefined locant
+			List<Atom> atomList = fragment.getAtomList();
+			for (Atom potentialStereoAtom : atomList) {
+				if (notExplicitlyDefinedStereoCentreMap.containsKey(potentialStereoAtom)){
+					applyStereoChemistryToStereoCentre(potentialStereoAtom, notExplicitlyDefinedStereoCentreMap.get(potentialStereoAtom), rOrS);
+					notExplicitlyDefinedStereoCentreMap.remove(potentialStereoAtom);
+					return true;
+				}
+			}
+		}
+		else{
+			Atom potentialStereoAtom = fragment.getAtomByLocant(locant);
+			if (potentialStereoAtom !=null && notExplicitlyDefinedStereoCentreMap.containsKey(potentialStereoAtom)){
+				applyStereoChemistryToStereoCentre(potentialStereoAtom, notExplicitlyDefinedStereoCentreMap.get(potentialStereoAtom), rOrS);
+				notExplicitlyDefinedStereoCentreMap.remove(potentialStereoAtom);
+				return true;
+			}
+		}
+		return false;
+	}
 
 	/**
 	 * Assigns atom parity to the given atom in accordance with the CIP rules
@@ -308,76 +299,20 @@ class StereochemistryHandler {
 			}
 		}
 		for (Fragment fragment : possibleFragments) {
-			if (locant == null){//undefined locant
-				Set<Bond> bondSet = fragment.getBondSet();
-				for (Bond potentialBond : bondSet) {
-					if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
-						applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
-						notExplicitlyDefinedStereoBondMap.remove(potentialBond);
-						return;
-					}
-				}
-				List<Bond> sortedInterFragmentBonds = sortInterFragmentBonds(state.fragManager.getInterFragmentBonds(fragment), fragment);
-				for (Bond potentialBond : sortedInterFragmentBonds) {
-					if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
-						applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
-						notExplicitlyDefinedStereoBondMap.remove(potentialBond);
-						return;
-					}
-				}
-			}
-			else{
-				Atom firstAtomInBond = fragment.getAtomByLocant(locant);
-				if (firstAtomInBond !=null){
-					List<Bond> bonds = firstAtomInBond.getBonds();
-					for (Bond potentialBond : bonds) {
-						if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
-							applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
-							notExplicitlyDefinedStereoBondMap.remove(potentialBond);
-							return;
-						}
-					}
-				}
+			if (attemptAssignmentOfStereoBondToFragment(fragment, eOrZ, locant, isCisTrans)) {
+				return;
 			}
 		}
 		Element possibleWordParent = parentSubBracketOrRoot.getParent();
 		if (possibleWordParent.getName().equals(WORD_EL) && possibleWordParent.getAttributeValue(TYPE_ATR).equals(WordType.substituent.toString())){
 			//the element is in front of a substituent and may refer to the full group
+			//i.e. the stereochemistry is in a different word to what it is applied to
 			List<Element> words = OpsinTools.getChildElementsWithTagNameAndAttribute(possibleWordParent.getParent(), WORD_EL, TYPE_ATR, WordType.full.toString());
 			for (Element word : words) {
 				List<Element> possibleGroups = OpsinTools.getDescendantElementsWithTagName(word, GROUP_EL);
 				for (int i = possibleGroups.size()-1; i >=0; i--) {
-					Fragment correspondingFrag = possibleGroups.get(i).getFrag();
-					if (locant == null){//undefined locant
-						Set<Bond> bondSet = correspondingFrag.getBondSet();
-						for (Bond potentialBond : bondSet) {
-							if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
-								applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
-								notExplicitlyDefinedStereoBondMap.remove(potentialBond);
-								return;
-							}
-						}
-						List<Bond> sortedInterFragmentBonds = sortInterFragmentBonds(state.fragManager.getInterFragmentBonds(correspondingFrag), correspondingFrag);
-						for (Bond potentialBond : sortedInterFragmentBonds) {
-							if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
-								applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
-								notExplicitlyDefinedStereoBondMap.remove(potentialBond);
-								return;
-							}
-						}
-					}
-					else{
-						Atom firstAtomInBond = correspondingFrag.getAtomByLocant(locant);
-						if (firstAtomInBond !=null){
-							List<Bond> bonds = firstAtomInBond.getBonds();
-							for (Bond potentialBond : bonds) {
-								if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
-									applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
-									notExplicitlyDefinedStereoBondMap.remove(potentialBond);
-									return;
-								}
-							}
-						}
+					if (attemptAssignmentOfStereoBondToFragment(possibleGroups.get(i).getFrag(), eOrZ, locant, isCisTrans)) {
+						return;
 					}
 				}
 			}
@@ -390,6 +325,41 @@ class StereochemistryHandler {
 		}
 	}
 
+
+	private boolean attemptAssignmentOfStereoBondToFragment(Fragment fragment, String eOrZ, String locant, boolean isCisTrans) throws StereochemistryException {
+		if (locant == null){//undefined locant
+			Set<Bond> bondSet = fragment.getBondSet();
+			for (Bond potentialBond : bondSet) {
+				if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
+					applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
+					notExplicitlyDefinedStereoBondMap.remove(potentialBond);
+					return true;
+				}
+			}
+			List<Bond> sortedInterFragmentBonds = sortInterFragmentBonds(state.fragManager.getInterFragmentBonds(fragment), fragment);
+			for (Bond potentialBond : sortedInterFragmentBonds) {
+				if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
+					applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
+					notExplicitlyDefinedStereoBondMap.remove(potentialBond);
+					return true;
+				}
+			}
+		}
+		else{
+			Atom firstAtomInBond = fragment.getAtomByLocant(locant);
+			if (firstAtomInBond !=null){
+				List<Bond> bonds = firstAtomInBond.getBonds();
+				for (Bond potentialBond : bonds) {
+					if (notExplicitlyDefinedStereoBondMap.containsKey(potentialBond) && (!isCisTrans || cisTransUnambiguousOnBond(potentialBond))){
+						applyStereoChemistryToStereoBond(potentialBond, notExplicitlyDefinedStereoBondMap.get(potentialBond), eOrZ);
+						notExplicitlyDefinedStereoBondMap.remove(potentialBond);
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
 
 	/**
 	 * Does the stereoBond have a hydrogen connected to both ends of it.
@@ -458,6 +428,9 @@ class StereochemistryHandler {
 		else if (eOrZ.equals("Z")){
 			bond.setBondStereoElement(atomRefs4, BondStereoValue.CIS);
 		}
+		else if (eOrZ.equals("EZ")){
+			bond.setBondStereo(null);
+		}
 		else{
 			throw new IllegalArgumentException("Unexpected stereochemistry type: " + eOrZ);
 		}
@@ -471,7 +444,7 @@ class StereochemistryHandler {
 	 * @throws StructureBuildingException
 	 */
 	private boolean assignCisTransOnRing(Element stereoChemistryEl) throws StructureBuildingException {
-		if (stereoChemistryEl.getAttribute(LOCANT_ATR)!=null){
+		if (stereoChemistryEl.getAttribute(LOCANT_ATR) != null) {
 			return false;
 		}
 		Element parentSubBracketOrRoot = stereoChemistryEl.getParent();
@@ -481,50 +454,71 @@ class StereochemistryHandler {
 			possibleFragments.add(adjacentGroupEls.get(i).getFrag());
 		}
 		for (Fragment fragment : possibleFragments) {
-			List<Atom> atomList = fragment.getAtomList();
-			List<Atom> stereoAtoms = new ArrayList<Atom>();
-			for (Atom potentialStereoAtom : atomList) {
-				if (potentialStereoAtom.getAtomIsInACycle()){
-					List<Atom> neighbours = potentialStereoAtom.getAtomNeighbours();
-					if (neighbours.size()==4){
-						int hydrogenCount =0;
-						int acylicOrNotInFrag =0;
-						for (Atom neighbour : neighbours) {
-							if (neighbour.getElement() == ChemEl.H){
-								hydrogenCount++;
-							}
-							if (!neighbour.getAtomIsInACycle() || !atomList.contains(neighbour)){
-								acylicOrNotInFrag++;
-							}
-						}
-						if (hydrogenCount==1 || (hydrogenCount==0 && acylicOrNotInFrag ==1) ){
-							stereoAtoms.add(potentialStereoAtom);
-						}
+			if (attemptAssignmentOfCisTransRingStereoToFragment(fragment, stereoChemistryEl)){
+				return true;
+			}
+		}
+
+		Element possibleWordParent = parentSubBracketOrRoot.getParent();
+		if (possibleWordParent.getName().equals(WORD_EL) && possibleWordParent.getChild(0).equals(parentSubBracketOrRoot)){
+			//stereochemistry is in a different word to what it is applied to
+			List<Element> words = OpsinTools.getNextSiblingsOfType(possibleWordParent, WORD_EL);
+			for (Element word : words) {
+				List<Element> possibleGroups = OpsinTools.getDescendantElementsWithTagName(word, GROUP_EL);
+				for (int i = possibleGroups.size()-1; i >=0; i--) {
+					if (attemptAssignmentOfCisTransRingStereoToFragment(possibleGroups.get(i).getFrag(), stereoChemistryEl)) {
+						return true;
 					}
 				}
-			}
-			if (stereoAtoms.size()==2){
-				Atom a1 = stereoAtoms.get(0);
-				Atom a2 = stereoAtoms.get(1);
-
-				if (a1.getAtomParity()!=null && a2.getAtomParity()!=null){//one can have defined stereochemistry but not both
-					return false;
-				}
-
-				Set<Bond> peripheryBonds = determinePeripheryBonds(fragment);
-				List<List<Atom>> paths = CycleDetector.getPathBetweenAtomsUsingBonds(a1, a2, peripheryBonds);
-				if (paths.size()!=2){
-					return false;
-				}
-				applyStereoChemistryToCisTransOnRing(a1, a2, paths, atomList, stereoChemistryEl.getAttributeValue(VALUE_ATR));
-				notExplicitlyDefinedStereoCentreMap.remove(stereoAtoms.get(0));
-				notExplicitlyDefinedStereoCentreMap.remove(stereoAtoms.get(1));
-				return true;
 			}
 		}
 		return false;
 	}
 
+
+	private boolean attemptAssignmentOfCisTransRingStereoToFragment(Fragment fragment, Element stereoChemistryEl) throws StructureBuildingException {
+		List<Atom> atomList = fragment.getAtomList();
+		List<Atom> stereoAtoms = new ArrayList<Atom>();
+		for (Atom potentialStereoAtom : atomList) {
+			if (potentialStereoAtom.getAtomIsInACycle()){
+				List<Atom> neighbours = potentialStereoAtom.getAtomNeighbours();
+				if (neighbours.size()==4){
+					int hydrogenCount =0;
+					int acylicOrNotInFrag =0;
+					for (Atom neighbour : neighbours) {
+						if (neighbour.getElement() == ChemEl.H){
+							hydrogenCount++;
+						}
+						if (!neighbour.getAtomIsInACycle() || !atomList.contains(neighbour)){
+							acylicOrNotInFrag++;
+						}
+					}
+					if (hydrogenCount==1 || (hydrogenCount==0 && acylicOrNotInFrag ==1) ){
+						stereoAtoms.add(potentialStereoAtom);
+					}
+				}
+			}
+		}
+		if (stereoAtoms.size()==2){
+			Atom a1 = stereoAtoms.get(0);
+			Atom a2 = stereoAtoms.get(1);
+
+			if (a1.getAtomParity()!=null && a2.getAtomParity()!=null){//one can have defined stereochemistry but not both
+				return false;
+			}
+
+			Set<Bond> peripheryBonds = determinePeripheryBonds(fragment);
+			List<List<Atom>> paths = CycleDetector.getPathBetweenAtomsUsingBonds(a1, a2, peripheryBonds);
+			if (paths.size()!=2){
+				return false;
+			}
+			applyStereoChemistryToCisTransOnRing(a1, a2, paths, atomList, stereoChemistryEl.getAttributeValue(VALUE_ATR));
+			notExplicitlyDefinedStereoCentreMap.remove(stereoAtoms.get(0));
+			notExplicitlyDefinedStereoCentreMap.remove(stereoAtoms.get(1));
+			return true;
+		}
+		return false;
+	}
 
 	private Set<Bond> determinePeripheryBonds(Fragment fragment) {
 		List<Ring> rings = SSSRFinder.getSetOfSmallestRings(fragment);
@@ -635,10 +629,11 @@ class StereochemistryHandler {
 	/**
 	 * Handles assignment of alpha and beta stereochemistry to appropriate ring systems
 	 * Currently these are only assignable to natural products
+	 * Xi (unknown) stereochemistry is applicable to any tetrahedral centre
 	 * @param stereoChemistryEl
 	 * @throws StructureBuildingException
 	 */
-	private void assignAlphaBetaStereochem(Element stereoChemistryEl) throws StructureBuildingException {
+	private void assignAlphaBetaXiStereochem(Element stereoChemistryEl) throws StructureBuildingException {
 		Element parentSubBracketOrRoot = stereoChemistryEl.getParent();
 		List<Fragment> possibleFragments = StructureBuildingMethods.findAlternativeFragments(parentSubBracketOrRoot);
 		Fragment substituentGroup =null;
@@ -653,12 +648,17 @@ class StereochemistryHandler {
 		String alphaOrBeta = stereoChemistryEl.getAttributeValue(VALUE_ATR);
 		for (Fragment fragment : possibleFragments) {
 			Atom potentialStereoAtom = fragment.getAtomByLocant(locant);
-			if (potentialStereoAtom !=null && atomStereoCentreMap.containsKey(potentialStereoAtom)){//same stereocentre can defined twice e.g. one subsituent alpha the other beta
-				String alphaBetaClockWiseAtomOrdering = fragment.getTokenEl().getAttributeValue(ALPHABETACLOCKWISEATOMORDERING_ATR);
-				if (alphaBetaClockWiseAtomOrdering==null){
-					throw new StructureBuildingException("Identified fragment is not known to be able to support alpha/beta stereochemistry");
+			if (potentialStereoAtom !=null && atomStereoCentreMap.containsKey(potentialStereoAtom)){//same stereocentre can be defined twice e.g. one subsituent alpha the other beta
+				if (alphaOrBeta.equals("xi")){
+					potentialStereoAtom.setAtomParity(null);
 				}
-				applyAlphaBetaStereochemistryToStereoCentre(potentialStereoAtom, fragment, alphaBetaClockWiseAtomOrdering, alphaOrBeta, substituentGroup);
+				else {
+					String alphaBetaClockWiseAtomOrdering = fragment.getTokenEl().getAttributeValue(ALPHABETACLOCKWISEATOMORDERING_ATR);
+					if (alphaBetaClockWiseAtomOrdering==null){
+						throw new StructureBuildingException("Identified fragment is not known to be able to support alpha/beta stereochemistry");
+					}
+					applyAlphaBetaStereochemistryToStereoCentre(potentialStereoAtom, fragment, alphaBetaClockWiseAtomOrdering, alphaOrBeta, substituentGroup);
+				}
 				notExplicitlyDefinedStereoCentreMap.remove(potentialStereoAtom);
 				return;
 			}
@@ -727,9 +727,6 @@ class StereochemistryHandler {
 				}
 				else if (alphaOrBeta.equals("beta")){
 					stereoAtom.setAtomParity(atomRefs4, -1);
-				}
-				else if (alphaOrBeta.equals("xi")){
-					stereoAtom.setAtomParity(null);
 				}
 				else{
 					throw new StructureBuildingException("OPSIN Bug: malformed alpha/beta stereochemistry value");

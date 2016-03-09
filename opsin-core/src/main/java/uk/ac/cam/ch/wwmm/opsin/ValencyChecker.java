@@ -77,6 +77,8 @@ class ValencyChecker {
 		valencyInHW.put(ChemEl.In, 3);
 		valencyInHW.put(ChemEl.Tl, 3);
 		valencyInHW.put(ChemEl.Hg, 2);
+		
+		valencyInHW.put(ChemEl.C, 4);
 
 		possibleStableValencies.put(ChemEl.H, new HashMap<Integer, Integer[]>());
 		possibleStableValencies.put(ChemEl.He, new HashMap<Integer, Integer[]>());
@@ -184,7 +186,7 @@ class ValencyChecker {
 		possibleStableValencies.get(ChemEl.N).put(1, new Integer[]{4});
 		possibleStableValencies.get(ChemEl.N).put(-1, new Integer[]{2});
 		possibleStableValencies.get(ChemEl.N).put(-2, new Integer[]{1});
-		possibleStableValencies.get(ChemEl.O).put(1, new Integer[]{4});
+		possibleStableValencies.get(ChemEl.O).put(2, new Integer[]{4});
 		possibleStableValencies.get(ChemEl.O).put(1, new Integer[]{3,5});
 		possibleStableValencies.get(ChemEl.O).put(-1, new Integer[]{1});
 		possibleStableValencies.get(ChemEl.O).put(-2, new Integer[]{0});

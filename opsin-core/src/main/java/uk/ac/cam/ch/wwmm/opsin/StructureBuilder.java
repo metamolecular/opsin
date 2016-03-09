@@ -1,10 +1,8 @@
 package uk.ac.cam.ch.wwmm.opsin;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ListIterator;
@@ -26,6 +24,9 @@ import static uk.ac.cam.ch.wwmm.opsin.StructureBuildingMethods.*;
  */
 class StructureBuilder {
 	private final BuildState state;
+	private final List<Atom> polymerAttachmentPoints = new ArrayList<Atom>();//rGroups need to be represented as normal atoms for the purpose of working out stereochemistry. They will be converted to a suitable representation later
+	
+	private int currentTopLevelWordRuleCount;
 	
 	StructureBuilder(BuildState state) {
 		this.state = state;
@@ -38,142 +39,150 @@ class StructureBuilder {
 	 */
 	Fragment buildFragment(Element molecule) throws StructureBuildingException {
 		List<Element> wordRules = molecule.getChildElements(WORDRULE_EL);
-		if (wordRules.size()==0){
-			throw new StructureBuildingException("Molecule contains no words!?");
-		}
-		Deque<Element> wordRuleStack = new ArrayDeque<Element>();
-		for (int i = wordRules.size() -1; i >=0; i--) {
-			wordRuleStack.add(wordRules.get(i));
+
+		currentTopLevelWordRuleCount = wordRules.size();
+		if (currentTopLevelWordRuleCount == 0) {
+			throw new StructureBuildingException("Molecule contains no word rules!?");
 		}
 		
-		List<Fragment> rGroups = new ArrayList<Fragment>();//rGroups need to represented as normal atoms for the purpose of working out stereochemistry. They will be converted to a suitable representation later
-		List<Element> wordRulesVisited = new ArrayList<Element>();
-		while (wordRuleStack.size()>0) {
-			Element nextWordRuleEl = wordRuleStack.getLast();//just has a look what's next
-			if(!wordRulesVisited.contains(nextWordRuleEl)){
-				wordRulesVisited.add(nextWordRuleEl);
-				List<Element> wordRuleChildren = nextWordRuleEl.getChildElements(WORDRULE_EL);
-				if (wordRuleChildren.size()!=0){//nested word rules
-					for (int i = wordRuleChildren.size() -1; i >=0; i--) {
-						wordRuleStack.add(wordRuleChildren.get(i));
-					}
-					continue;
-				}
-			}
-			Element currentWordRuleEl = wordRuleStack.removeLast();
-			WordRule wordRule = WordRule.valueOf(currentWordRuleEl.getAttributeValue(WORDRULE_ATR));
-			List<Element> words = OpsinTools.getChildElementsWithTagNames(currentWordRuleEl, new String[]{WORD_EL, WORDRULE_EL});
-			state.currentWordRule =wordRule;
-			if(wordRule == WordRule.simple) {
-				for (Element word : words) {
-					if (!word.getName().equals(WORD_EL) || !word.getAttributeValue(TYPE_ATR).equals(WordType.full.toString())){
-						throw new StructureBuildingException("OPSIN bug: Unexpected contents of 'simple' wordRule");
-					}
-					resolveWordOrBracket(state, word);
-				}
-			}
-			else if(wordRule == WordRule.substituent) {
-				for (Element word : words) {
-					if (!word.getName().equals(WORD_EL) || !word.getAttributeValue(TYPE_ATR).equals(WordType.substituent.toString()) || !state.n2sConfig.isAllowRadicals()){
-						throw new StructureBuildingException("OPSIN bug: Unexpected contents of 'substituent' wordRule");
-					}
-					resolveWordOrBracket(state, word);
-				}
-			}
-			else if(wordRule == WordRule.ester || wordRule == WordRule.multiEster) {
-				buildEster(words);//e.g. ethyl ethanoate, dimethyl terephthalate,  methyl propanamide
-			}
-			else if (wordRule == WordRule.divalentFunctionalGroup){
-				buildDiValentFunctionalGroup(words);// diethyl ether or methyl propyl ketone
-			}
-			else if (wordRule == WordRule.monovalentFunctionalGroup){
-				buildMonovalentFunctionalGroup(words);// ethyl chloride, isophthaloyl dichloride, diethyl ether, ethyl alcohol
-			}
-			else if(wordRule == WordRule.functionalClassEster) {
-				buildFunctionalClassEster(words);//e.g. ethanoic acid ethyl ester, tetrathioterephthalic acid dimethyl ester
-			}
-			else if (wordRule == WordRule.acidReplacingFunctionalGroup){
-				//e.g. ethanoic acid ethyl amide, terephthalic acid dimethyl amide,
-				//ethanoic acid amide, carbonic dihydrazide
-				//already processed by the ComponentProcessor
-				for (Element word : words) {
-					resolveWordOrBracket(state, word);
-				}
-			}
-			else if(wordRule == WordRule.oxide) {
-				buildOxide(words);//e.g. styrene oxide, triphenylphosphane oxide, thianthrene 5,5-dioxide, propan-2-one oxide
-			}
-			else if(wordRule == WordRule.carbonylDerivative) {
-				buildCarbonylDerivative(words);//e.g. Imidazole-2-carboxamide O-ethyloxime, pentan-3-one oxime
-			}
-			else if(wordRule == WordRule.anhydride) {//e.g. acetic anhydride
-				buildAnhydride(words);
-			}
-			else if(wordRule == WordRule.acidHalideOrPseudoHalide) {//e.g. phosphinimidic chloride
-				buildAcidHalideOrPseudoHalide(words);
-			}
-			else if(wordRule == WordRule.additionCompound) {//e.g. carbon tetrachloride
-				buildAdditionCompound(words);
-			}
-			else if (wordRule == WordRule.glycol){
-				buildGlycol(words);//e.g. ethylene glycol
-			}
-			else if (wordRule == WordRule.glycolEther){
-				buildGlycolEther(words);//e.g. octaethyleneglycol monododecyl ether
-			}
-			else if(wordRule == WordRule.acetal) {
-				buildAcetal(words);//e.g. propanal diethyl acetal
-			}
-			else if(wordRule == WordRule.potentialAlcoholEster) {
-				//e.g. uridine 5'-(tetrahydrogen triphosphate)
-				if (!buildAlcoholEster(words, wordRules.size())){
-					//should be processed as two "simple" wordrules if no hydroxy found, hence number of top level word rules may change
-					//These simple word rules have already been processed
-					splitAlcoholEsterRuleIntoTwoSimpleWordRules(words);
-					wordRules = molecule.getChildElements(WORDRULE_EL);
-				}
-			}
-			else if(wordRule == WordRule.cyclicPeptide) {
-				buildCyclicPeptide(words);
-			}
-			else if(wordRule == WordRule.polymer) {
-				rGroups.addAll(buildPolymer(words));
-			}
-			else{
-				throw new StructureBuildingException("Unknown Word Rule");
-			}
+		for (Element wordRule : wordRules) {
+			processWordRuleChildrenThenRule(wordRule);
 		}
 		
+		if (currentTopLevelWordRuleCount != wordRules.size()) {
+			wordRules = molecule.getChildElements(WORDRULE_EL);//very rarely a word rule adds a top level word rule
+		}
+
 		List<Element> groupElements = OpsinTools.getDescendantElementsWithTagName(molecule, GROUP_EL);
-		processOxidoSpecialCase(groupElements);
+		processOxidoAndMethionineSpecialCases(groupElements);
 		processOxidationNumbers(groupElements);
 		state.fragManager.convertSpareValenciesToDoubleBonds();
 		state.fragManager.checkValencies();
 		
-		boolean explicitStoichiometryPresent = applyExplicitStoichiometryIfProvided(wordRules);
-		int overallCharge = state.fragManager.getOverallCharge();
-		if (overallCharge!=0 && wordRules.size() >1){//a net charge is present! Could just mean the counterion has not been specified though
-			balanceChargeIfPossible(molecule, overallCharge, explicitStoichiometryPresent);
-		}
+		manipulateStoichiometry(molecule, wordRules);
+		
 		state.fragManager.makeHydrogensExplicit();
 
 		Fragment uniFrag = state.fragManager.getUnifiedFragment();
 		processStereochemistry(molecule, uniFrag);
 
-		if (uniFrag.getOutAtomCount()>0 && !state.n2sConfig.isAllowRadicals()){
-			throw new StructureBuildingException("Radicals are currently set to not convert to structures");
-		}
-		if (state.n2sConfig.isOutputRadicalsAsWildCardAtoms()) {
-			convertOutAtomsToAttachmentAtoms(uniFrag);
+		if (uniFrag.getOutAtomCount() > 0) {
+			if (!state.n2sConfig.isAllowRadicals()) {
+				throw new StructureBuildingException("Radicals are currently set to not convert to structures");
+			}
+			if (state.n2sConfig.isOutputRadicalsAsWildCardAtoms()) {
+				convertOutAtomsToAttachmentAtoms(uniFrag);
+			}
 		}
 		
-		for (Fragment rGroup : rGroups) {
-			Atom rAtom = rGroup.getFirstAtom();
-			rAtom.setElement(ChemEl.R);
+		if (polymerAttachmentPoints.size() > 0) {
+			for (Atom rAtom : polymerAttachmentPoints) {
+				rAtom.setElement(ChemEl.R);
+			}
+			uniFrag.setPolymerAttachmentPoints(polymerAttachmentPoints);
 		}
-
 		return uniFrag;
 	}
+
+
+	private void processWordRuleChildrenThenRule(Element wordRule) throws StructureBuildingException {
+		List<Element> wordRuleChildren = wordRule.getChildElements(WORDRULE_EL);
+		for (Element wordRuleChild : wordRuleChildren) {
+			processWordRuleChildrenThenRule(wordRuleChild);
+		}
+		processWordRule(wordRule);
+	}
+	
+	private void processWordRule(Element wordRuleEl) throws StructureBuildingException {
+		WordRule wordRule = WordRule.valueOf(wordRuleEl.getAttributeValue(WORDRULE_ATR));
+		List<Element> words = OpsinTools.getChildElementsWithTagNames(wordRuleEl, new String[]{WORD_EL, WORDRULE_EL});
+		state.currentWordRule = wordRule;
+		switch (wordRule) {
+		case simple:
+			for (Element word : words) {
+				if (!word.getName().equals(WORD_EL) || !word.getAttributeValue(TYPE_ATR).equals(WordType.full.toString())){
+					throw new StructureBuildingException("OPSIN bug: Unexpected contents of 'simple' wordRule");
+				}
+				resolveWordOrBracket(state, word);
+			}
+			break;
+		case substituent:
+			for (Element word : words) {
+				if (!word.getName().equals(WORD_EL) || !word.getAttributeValue(TYPE_ATR).equals(WordType.substituent.toString()) || !state.n2sConfig.isAllowRadicals()){
+					throw new StructureBuildingException("OPSIN bug: Unexpected contents of 'substituent' wordRule");
+				}
+				resolveWordOrBracket(state, word);
+			}
+			break;
+		case ester:
+		case multiEster:
+			buildEster(words);//e.g. ethyl ethanoate, dimethyl terephthalate,  methyl propanamide
+			break;
+		case divalentFunctionalGroup:
+			buildDiValentFunctionalGroup(words);// diethyl ether or methyl propyl ketone
+			break;
+		case monovalentFunctionalGroup:
+			buildMonovalentFunctionalGroup(words);// ethyl chloride, isophthaloyl dichloride, diethyl ether, ethyl alcohol
+			break;
+		case functionalClassEster:
+			buildFunctionalClassEster(words);//e.g. ethanoic acid ethyl ester, tetrathioterephthalic acid dimethyl ester
+			break;
+		case acidReplacingFunctionalGroup:
+			//e.g. ethanoic acid ethyl amide, terephthalic acid dimethyl amide,
+			//ethanoic acid amide, carbonic dihydrazide
+			//already processed by the ComponentProcessor
+			for (Element word : words) {
+				resolveWordOrBracket(state, word);
+			}
+			break;
+		case oxide:
+			buildOxide(words);//e.g. styrene oxide, triphenylphosphane oxide, thianthrene 5,5-dioxide, propan-2-one oxide
+			break;
+		case carbonylDerivative:
+			buildCarbonylDerivative(words);//e.g. Imidazole-2-carboxamide O-ethyloxime, pentan-3-one oxime
+			break;
+		case anhydride:
+			buildAnhydride(words);//e.g. acetic anhydride
+			break;
+		case acidHalideOrPseudoHalide:
+			buildAcidHalideOrPseudoHalide(words);//e.g. phosphinimidic chloride
+			break;
+		case additionCompound:
+			buildAdditionCompound(words);//e.g. carbon tetrachloride
+			break;
+		case glycol:
+			buildGlycol(words);//e.g. ethylene glycol
+			break;
+		case glycolEther:
+			buildGlycolEther(words);//e.g. octaethyleneglycol monododecyl ether
+			break;
+		case acetal:
+			buildAcetal(words);//e.g. propanal diethyl acetal
+			break;
+		case potentialAlcoholEster:
+			//e.g. uridine 5'-(tetrahydrogen triphosphate)
+			if (!buildAlcoholEster(words, currentTopLevelWordRuleCount)){
+				//should be processed as two "simple" wordrules if no hydroxy found, hence number of top level word rules may change
+				//These simple word rules have already been processed
+				splitAlcoholEsterRuleIntoTwoSimpleWordRules(words);
+				currentTopLevelWordRuleCount++;
+			}
+			break;
+		case cyclicPeptide:
+			buildCyclicPeptide(words);
+			break;
+		case amineDiConjunctiveSuffix:
+			//e.g. glycine N,N-diacetic acid
+			buildAmineDiConjunctiveSuffix(words);
+			break;
+		case polymer:
+			buildPolymer(words);
+			break;
+		default:
+			throw new StructureBuildingException("Unexpected Word Rule");
+		}
+	}
+
 
 	private void buildEster(List<Element> words) throws StructureBuildingException {
 		boolean inSubstituents = true;
@@ -557,6 +566,9 @@ class StructureBuilder {
 			Atom oxideAtom = oxideFragments.get(i).getFirstAtom();
 			if (!locantsForOxide.isEmpty()){
 				Atom atomToAddOxideTo =groupToModify.getAtomByLocantOrThrow(locantsForOxide.get(i));
+				if (atomToAddOxideTo.getElement() == ChemEl.C && !ELEMENTARYATOM_SUBTYPE_VAL.equals(groupToModify.getSubType())) {
+					throw new StructureBuildingException("Locant " + locantsForOxide.get(i) + " indicated oxide applied to carbon, but this would lead to hypervalency!");
+				}
 				formAppropriateBondToOxideAndAdjustCharges(atomToAddOxideTo, oxideAtom);
 			}
 			else{
@@ -1012,7 +1024,7 @@ class StructureBuilder {
 
 		boolean monoMultiplierDetected =false;
 		List<Fragment> functionalGroupFragments = new ArrayList<Fragment>();
-		for (int i=1; i<words.size(); i++ ) {
+		for (int i = 1; i < words.size(); i++ ) {
 			Element functionalGroupWord =words.get(i);
 			List<Element> functionalGroups = OpsinTools.getDescendantElementsWithTagName(functionalGroupWord, FUNCTIONALGROUP_EL);
 			if (functionalGroups.size()!=1){
@@ -1026,9 +1038,9 @@ class StructureBuilder {
 			}
 			Element possibleMultiplier = OpsinTools.getPreviousSibling(functionalGroups.get(0));
 			functionalGroupFragments.add(monoValentFunctionGroup);
-			if (possibleMultiplier!=null){
+			if (possibleMultiplier != null){
 				int multiplierValue = Integer.parseInt(possibleMultiplier.getAttributeValue(VALUE_ATR));
-				if (multiplierValue==1){
+				if (multiplierValue == 1) {
 					monoMultiplierDetected = true;
 				}
 				for (int j = 1; j < multiplierValue; j++) {
@@ -1038,7 +1050,15 @@ class StructureBuilder {
 			}
 		}
 		int halideCount = functionalGroupFragments.size();
-		if (halideCount > functionalAtomCount || (!monoMultiplierDetected && halideCount <functionalAtomCount)){
+		if (halideCount < functionalAtomCount && halideCount == 1 && !monoMultiplierDetected) {
+			//e.g. phosphoric chloride, chloride is implicitly multiplied
+			Fragment ideFrag = functionalGroupFragments.get(0);
+			for (int i = halideCount; i < functionalAtomCount; i++) {
+				functionalGroupFragments.add(state.fragManager.copyFragment(ideFrag));
+			}
+			halideCount = functionalAtomCount;
+		}
+		else if (halideCount > functionalAtomCount || (!monoMultiplierDetected && halideCount <functionalAtomCount)){
 			throw new StructureBuildingException("Mismatch between number of halide/pseudo halide fragments and acidic oxygens");
 		}
 		for (int i = halideCount - 1; i>=0; i--) {
@@ -1056,48 +1076,50 @@ class StructureBuilder {
 	}
 	
 	private void buildAdditionCompound(List<Element> words) throws StructureBuildingException {
-		if (!words.get(0).getAttributeValue(TYPE_ATR).equals(WordType.full.toString())){
+		Element firstWord = words.get(0);
+		if (!firstWord.getAttributeValue(TYPE_ATR).equals(WordType.full.toString())) {
 			throw new StructureBuildingException("Don't alter wordRules.xml without checking the consequences!");
 		}
-		resolveWordOrBracket(state, words.get(0));
-		Element elementaryAtomEl = StructureBuildingMethods.findRightMostGroupInBracket(words.get(0));
+		resolveWordOrBracket(state, firstWord);
+		Element elementaryAtomEl = StructureBuildingMethods.findRightMostGroupInBracket(firstWord);
 		Fragment elementaryAtomFrag = elementaryAtomEl.getFrag();
 		Atom elementaryAtom = elementaryAtomFrag.getFirstAtom();
 		int charge = elementaryAtom.getCharge();
 		List<Fragment> functionalGroupFragments = new ArrayList<Fragment>();
-		for (int i=1; i<words.size(); i++ ) {
-			Element functionalGroupWord =words.get(i);
+		for (int i = 1; i < words.size(); i++ ) {
+			Element functionalGroupWord = words.get(i);
 			List<Element> functionalGroups = OpsinTools.getDescendantElementsWithTagName(functionalGroupWord, FUNCTIONALGROUP_EL);
-			if (functionalGroups.size()!=1){
+			if (functionalGroups.size() != 1){
 				throw new StructureBuildingException("Expected exactly 1 functionalGroup. Found " + functionalGroups.size());
 			}
+			Element functionGroup = functionalGroups.get(0);
 			
-			Fragment monoValentFunctionGroup =state.fragManager.buildSMILES(functionalGroups.get(0).getAttributeValue(VALUE_ATR), FUNCTIONALCLASS_TYPE_VAL, NONE_LABELS_VAL);
-			if (functionalGroups.get(0).getAttributeValue(TYPE_ATR).equals(MONOVALENTSTANDALONEGROUP_TYPE_VAL)){
+			Fragment monoValentFunctionGroup = state.fragManager.buildSMILES(functionGroup.getAttributeValue(VALUE_ATR), FUNCTIONALCLASS_TYPE_VAL, NONE_LABELS_VAL);
+			if (functionGroup.getAttributeValue(TYPE_ATR).equals(MONOVALENTSTANDALONEGROUP_TYPE_VAL)){
 				Atom ideAtom = monoValentFunctionGroup.getDefaultInAtomOrFirstAtom();
 				ideAtom.addChargeAndProtons(1, 1);//e.g. make cyanide charge netural
 			}
-			Element possibleMultiplier = OpsinTools.getPreviousSibling(functionalGroups.get(0));
+			Element possibleMultiplier = OpsinTools.getPreviousSibling(functionGroup);
 			functionalGroupFragments.add(monoValentFunctionGroup);
-			if (possibleMultiplier!=null){
+			if (possibleMultiplier != null) {
 				int multiplierValue = Integer.parseInt(possibleMultiplier.getAttributeValue(VALUE_ATR));
 				for (int j = 1; j < multiplierValue; j++) {
 					functionalGroupFragments.add(state.fragManager.copyFragment(monoValentFunctionGroup));
 				}
 				possibleMultiplier.detach();
 			}
-			else if (words.size()==2){//silicon chloride -->silicon tetrachloride
-				int incomingBondOrder =elementaryAtom.getIncomingValency();
+			else if (words.size() == 2) {//silicon chloride -->silicon tetrachloride
+				int incomingBondOrder = elementaryAtom.getIncomingValency();
 				int expectedValency;
-				if (charge > 0){
+				if (charge > 0) {
 					expectedValency = incomingBondOrder + charge;
 				}
 				else{
-					if (elementaryAtom.getProperty(Atom.OXIDATION_NUMBER)!=null){
+					if (elementaryAtom.getProperty(Atom.OXIDATION_NUMBER) != null) {
 						expectedValency = elementaryAtom.getProperty(Atom.OXIDATION_NUMBER);
 					}
 					else{
-						if (elementaryAtomEl.getAttribute(COMMONOXIDATIONSTATESANDMAX_ATR)!=null){
+						if (elementaryAtomEl.getAttribute(COMMONOXIDATIONSTATESANDMAX_ATR) != null) {
 							String[] typicalOxidationStates = MATCH_COMMA.split(MATCH_COLON.split(elementaryAtomEl.getAttributeValue(COMMONOXIDATIONSTATESANDMAX_ATR))[0]);
 							expectedValency = Integer.parseInt(typicalOxidationStates[0]);
 						}
@@ -1106,22 +1128,22 @@ class StructureBuilder {
 						}
 					}
 				}
-				int implicitMultiplier = expectedValency -incomingBondOrder >1 ? expectedValency -incomingBondOrder : 1;
+				int implicitMultiplier = expectedValency - incomingBondOrder > 1 ? expectedValency - incomingBondOrder : 1;
 				for (int j = 1; j < implicitMultiplier; j++) {
 					functionalGroupFragments.add(state.fragManager.copyFragment(monoValentFunctionGroup));
 				}
 			}
 		}
 		int halideCount = functionalGroupFragments.size();
-		if (charge>0){
+		if (charge > 0) {
 			elementaryAtom.setCharge(charge - halideCount);
 		}
 		Integer maximumVal = ValencyChecker.getMaximumValency(elementaryAtom.getElement(), elementaryAtom.getCharge());
-		if (maximumVal!=null && halideCount > maximumVal){
+		if (maximumVal != null && halideCount > maximumVal) {
 			throw new StructureBuildingException("Too many halides/psuedo halides addded to " +elementaryAtom.getElement());
 		}
-		for (int i = halideCount - 1; i>=0; i--) {
-			Fragment ideFrag =functionalGroupFragments.get(i);
+		for (int i = halideCount - 1; i >= 0; i--) {
+			Fragment ideFrag = functionalGroupFragments.get(i);
 			Atom ideAtom = ideFrag.getDefaultInAtomOrFirstAtom();
 			state.fragManager.incorporateFragment(ideFrag, ideAtom, elementaryAtomFrag, elementaryAtom, 1);
 		}
@@ -1176,8 +1198,9 @@ class StructureBuilder {
 	 * @throws StructureBuildingException
 	 */
 	private void buildGlycolEther(List<Element> words) throws StructureBuildingException {
-		List<Element> wordsToAttachToGlcyol = new ArrayList<Element>();
+		List<Element> wordsToAttachToGlycol = new ArrayList<Element>();
 		Element glycol =words.get(0);
+		resolveWordOrBracket(state, glycol);//if this actually is something like ethylene glycol this is a no-op as it will already have been resolved
 		if (!glycol.getAttributeValue(TYPE_ATR).equals(WordType.full.toString())){
 			throw new StructureBuildingException("OPSIN Bug: Cannot find glycol word!");
 		}
@@ -1186,47 +1209,38 @@ class StructureBuilder {
 			//ether ignored
 			if (!wordOrWordRule.getAttributeValue(TYPE_ATR).equals(WordType.functionalTerm.toString())){
 				resolveWordOrBracket(state, wordOrWordRule);//the substituent to attach
-				wordsToAttachToGlcyol.add(wordOrWordRule);
+				wordsToAttachToGlycol.add(wordOrWordRule);
 			}
 			else if (!wordOrWordRule.getAttributeValue(VALUE_ATR).equalsIgnoreCase("ether")){
 				throw new StructureBuildingException("Unexpected word encountered when applying glycol ether word rule " + wordOrWordRule.getAttributeValue(VALUE_ATR));
 			}
 		}
-		if (wordsToAttachToGlcyol.size() !=1 && wordsToAttachToGlcyol.size() !=2 ){
-			throw new StructureBuildingException("Unexpected number of substituents for glycol ether. Expected 1 or 2 found: " +wordsToAttachToGlcyol.size());
+		int numOfEthers = wordsToAttachToGlycol.size();
+		if (numOfEthers == 0) {
+			throw new StructureBuildingException("OPSIN Bug: Unexpected number of substituents for glycol ether");
 		}
 		Element finalGroup = findRightMostGroupInWordOrWordRule(glycol);
-		Fragment theDiRadical = finalGroup.getFrag();
-		List<Atom> atomList = theDiRadical.getAtomList();
-		List<Atom> glycolAtoms = new ArrayList<Atom>();
-		for (Atom atom : atomList) {
-			if (atom.getElement() == ChemEl.O && atom.getType().equals(FUNCTIONALCLASS_TYPE_VAL)){
-				glycolAtoms.add(atom);
+		List<Atom> hydroxyAtoms = FragmentTools.findHydroxyGroups(finalGroup.getFrag());
+		if (hydroxyAtoms.size() == 0) {
+			throw new StructureBuildingException("No hydroxy groups found in: " + finalGroup.getValue() + " to form ether");
+		}
+		if (hydroxyAtoms.size() < numOfEthers) {
+			throw new StructureBuildingException("Insufficient hydroxy groups found in: " + finalGroup.getValue() + " to form required number of ethers");
+		}
+		for (int i = 0; i < numOfEthers; i++) {
+			BuildResults br = new BuildResults(wordsToAttachToGlycol.get(i));
+			if (br.getOutAtomCount() >0){//form ether
+				state.fragManager.createBond(hydroxyAtoms.get(i), br.getOutAtom(0).getAtom(), 1);
+				br.removeOutAtom(0);
 			}
-		}
-		if (glycolAtoms.size()!=2){
-			throw new StructureBuildingException("OPSIN bug: unable to find the two glycol oxygens");
-		}
-		BuildResults br1 = new BuildResults(wordsToAttachToGlcyol.get(0));
-		if (br1.getOutAtomCount() ==0){
-			throw new StructureBuildingException("Substituent had no outAtom to form glycol ether");
-		}
-		state.fragManager.createBond(glycolAtoms.get(0), br1.getOutAtom(0).getAtom(), 1);
-		br1.removeOutAtom(0);
-		if (wordsToAttachToGlcyol.size()==2){
-			BuildResults br2 = new BuildResults(wordsToAttachToGlcyol.get(1));
-			if (br2.getOutAtomCount() >0){//form ether
-				state.fragManager.createBond(glycolAtoms.get(1), br2.getOutAtom(0).getAtom(), 1);
-				br2.removeOutAtom(0);
-			}
-			else if (br2.getFunctionalAtomCount() >0){//form ester
-				Atom ateAtom = br2.getFunctionalAtom(0);
+			else if (br.getFunctionalAtomCount() >0){//form ester
+				Atom ateAtom = br.getFunctionalAtom(0);
 				ateAtom.neutraliseCharge();
-				state.fragManager.replaceAtomWithAnotherAtomPreservingConnectivity(glycolAtoms.get(1), br2.getFunctionalAtom(0));
-				br2.removeFunctionalAtom(0);
+				state.fragManager.replaceAtomWithAnotherAtomPreservingConnectivity(hydroxyAtoms.get(i), br.getFunctionalAtom(0));
+				br.removeFunctionalAtom(0);
 			}
 			else{
-				throw new StructureBuildingException("Word had neither an outAtom or a functionalAtom! hence neither and ether or ester could be formed : " + wordsToAttachToGlcyol.get(1).getAttributeValue(VALUE_ATR));
+				throw new StructureBuildingException("Word had neither an outAtom or a functionalAtom! hence neither and ether or ester could be formed : " + wordsToAttachToGlycol.get(i).getAttributeValue(VALUE_ATR));
 			}
 		}
 	}
@@ -1390,7 +1404,7 @@ class StructureBuilder {
 			if (!chosenHydroxyAtoms.isEmpty()) {
 				throw new RuntimeException("OPSIN Bug: Either all or none of the esters should be locanted in alcohol ester rule");
 			}
-			if (hydroxyAtoms.size() == ateWords  || hydroxyAtoms.size() > ateWords && AmbiguityChecker.allAtomsEquivalent(hydroxyAtoms)) {
+			if (hydroxyAtoms.size() == ateWords  || hydroxyAtoms.size() > ateWords && (AmbiguityChecker.allAtomsEquivalent(hydroxyAtoms) || potentialAlcoholFragment.getTokenEl().getValue().equals("glycerol") )) {
 				for (int i = 0; i < ateWords; i++) {
 					chosenHydroxyAtoms.add(hydroxyAtoms.get(i));
 				}
@@ -1419,6 +1433,42 @@ class StructureBuilder {
 			state.fragManager.replaceAtomWithAnotherAtomPreservingConnectivity(functionalAtom, chosenHydroxyAtoms.get(i));
 		}
 		return true;
+	}
+	
+	private void buildAmineDiConjunctiveSuffix(List<Element> words) throws StructureBuildingException {
+		for (Element word : words) {
+			if (!WordType.full.toString().equals(word.getAttributeValue(TYPE_ATR))){
+				throw new StructureBuildingException("Bug in word rule for amineDiConjunctiveSuffix");
+			}
+			resolveWordOrBracket(state, word);
+		}
+		if (words.size() != 3) {
+			throw new StructureBuildingException("Unexpected number of words encountered when processing name of type amineDiConjunctiveSuffix, expected 3 but found: " + words.size());
+		}
+		Element aminoAcid = findRightMostGroupInWordOrWordRule(words.get(0));
+		if (aminoAcid == null) {
+			throw new RuntimeException("OPSIN Bug: failed to find amino acid");
+		}
+		Atom amineAtom = aminoAcid.getFrag().getDefaultInAtom();
+		if (amineAtom == null) {
+			throw new StructureBuildingException("OPSIN did not know where the amino acid amine was located");
+		}
+		
+		for (int i = 1; i < words.size(); i++) {
+			Element word = words.get(i);
+			Fragment suffixLikeGroup = findRightMostGroupInWordOrWordRule(word).getFrag();
+			String locant = word.getAttributeValue(LOCANT_ATR);
+			if (locant != null){
+				if (!locant.equals("N")) {
+					throw new RuntimeException("OPSIN Bug: locant expected to be N but was: " + locant);
+				}
+			}
+			Atom atomToConnectToOnConjunctiveFrag = FragmentTools.lastNonSuffixCarbonWithSufficientValency(suffixLikeGroup);
+			if (atomToConnectToOnConjunctiveFrag == null) {
+				throw new StructureBuildingException("OPSIN Bug: Unable to find non suffix carbon with sufficient valency");
+			}
+			state.fragManager.createBond(atomToConnectToOnConjunctiveFrag, amineAtom, 1);
+		}
 	}
 
 	private static final Pattern matchCommonCarboxylicSalt = Pattern.compile("tri-?fluoro-?acetate?$", Pattern.CASE_INSENSITIVE);
@@ -1559,33 +1609,33 @@ class StructureBuilder {
 		}
 	}
 
-	private List<Fragment> buildPolymer(List<Element> words) throws StructureBuildingException {
+	private void buildPolymer(List<Element> words) throws StructureBuildingException {
 		if (words.size()!=2){
 			throw new StructureBuildingException("Currently unsupported polymer name type");
 		}
 		Element polymer = words.get(1);
 		resolveWordOrBracket(state, polymer);
 		BuildResults polymerBr = new BuildResults(polymer);
-		List<Fragment> rGroups = new ArrayList<Fragment>();
 		if (polymerBr.getOutAtomCount() ==2){
 			Atom inAtom = getOutAtomTakingIntoAccountWhetherSetExplicitly(polymerBr, 0);
 			Atom outAtom = getOutAtomTakingIntoAccountWhetherSetExplicitly(polymerBr, 1);
 			/*
 			 * We assume the polymer repeats so as an approximation we create an R group with the same element as the group at the other end of polymer (with valency equal to the bondorder of the Rgroup so no H added)
 			 */
-			Fragment rGroup1 =state.fragManager.buildSMILES("[" + outAtom.getElement().toString() + "|" + polymerBr.getOutAtom(0).getValency() + "]", "", "alpha");
-			state.fragManager.createBond(inAtom, rGroup1.getFirstAtom(), polymerBr.getOutAtom(0).getValency());
+			Atom rGroup1 =state.fragManager.buildSMILES("[" + outAtom.getElement().toString() + "|" + polymerBr.getOutAtom(0).getValency() + "]", "", "alpha").getFirstAtom();
+			rGroup1.setProperty(Atom.ATOM_CLASS, 1);
+			state.fragManager.createBond(inAtom, rGroup1, polymerBr.getOutAtom(0).getValency());
 
-			Fragment rGroup2 =state.fragManager.buildSMILES("[" + inAtom.getElement().toString() + "|" + polymerBr.getOutAtom(1).getValency() + "]", "", "omega");
-			state.fragManager.createBond(outAtom, rGroup2.getFirstAtom(), polymerBr.getOutAtom(1).getValency());
-			rGroups.add(rGroup1);
-			rGroups.add(rGroup2);
+			Atom rGroup2 =state.fragManager.buildSMILES("[" + inAtom.getElement().toString() + "|" + polymerBr.getOutAtom(1).getValency() + "]", "", "omega").getFirstAtom();
+			rGroup2.setProperty(Atom.ATOM_CLASS, 2);
+			state.fragManager.createBond(outAtom, rGroup2, polymerBr.getOutAtom(1).getValency());
+			polymerAttachmentPoints.add(rGroup1);
+			polymerAttachmentPoints.add(rGroup2);
 			polymerBr.removeAllOutAtoms();
 		}
 		else{
 			throw new StructureBuildingException("Polymer building failed: Two termini were not found; Expected 2 outAtoms, found: " +polymerBr.getOutAtomCount());
 		}
-		return rGroups;
 	}
 
 	/**
@@ -1669,6 +1719,85 @@ class StructureBuilder {
 		throw new StructureBuildingException("Cannot find functional atom with locant: " +locant + " to form an ester with");
 	}
 
+	/**
+	 * Applies explicit stoichiometry, charge balancing and fractional multipliers
+	 * @param molecule
+	 * @param wordRules
+	 * @throws StructureBuildingException
+	 */
+	private void manipulateStoichiometry(Element molecule, List<Element> wordRules) throws StructureBuildingException {
+		boolean explicitStoichiometryPresent = applyExplicitStoichiometryIfProvided(wordRules);
+		boolean chargedFractionalGroup = false;
+		List<Element> wordRulesWithFractionalMultipliers = new ArrayList<Element>(0);
+		for (Element wordRule : wordRules) {
+			Element fractionalMultiplier = wordRule.getChild(0);
+			while (fractionalMultiplier.getChildCount() != 0){
+				fractionalMultiplier = fractionalMultiplier.getChild(0);
+			}
+			if (fractionalMultiplier.getName().equals(FRACTIONALMULTIPLIER_EL)) {
+				if (explicitStoichiometryPresent) {
+					throw new StructureBuildingException("Fractional multipliers should not be used in conjunction with explicit stoichiometry");
+				}
+				String[] value = fractionalMultiplier.getAttributeValue(VALUE_ATR).split("/");
+				if (value.length != 2) {
+					throw new RuntimeException("OPSIN Bug: malformed fractional multiplier: " + fractionalMultiplier.getAttributeValue(VALUE_ATR));
+				}
+				try {
+					int numerator = Integer.parseInt(value[0]);
+					int denominator = Integer.parseInt(value[1]);
+					if (denominator != 2) {
+						throw new RuntimeException("Only fractions of a 1/2 currently supported");
+					}
+					for (int j = 1; j < numerator; j++) {
+						Element clone = state.fragManager.cloneElement(state, wordRule);
+						OpsinTools.insertAfter(wordRule, clone);
+						wordRulesWithFractionalMultipliers.add(clone);
+					}
+				}
+				catch (NumberFormatException e) {
+					throw new RuntimeException("OPSIN Bug: malformed fractional multiplier: " + fractionalMultiplier.getAttributeValue(VALUE_ATR));
+				}
+				//don't detach the fractional multiplier to avoid charge balancing multiplication (cf. handling of mono)
+				wordRulesWithFractionalMultipliers.add(wordRule);
+				if (new BuildResults(wordRule).getCharge() !=0){
+					chargedFractionalGroup = true;
+				}
+			}
+		}
+		if (wordRulesWithFractionalMultipliers.size() > 0) {
+			if (wordRules.size() == 1) {
+				throw new StructureBuildingException("Unexpected fractional multiplier found at start of word");
+			}
+			if (chargedFractionalGroup) {
+				for (Element wordRule : wordRules) {
+					if (wordRulesWithFractionalMultipliers.contains(wordRule)) {
+						continue;
+					}
+					Element clone = state.fragManager.cloneElement(state, wordRule);
+					OpsinTools.insertAfter(wordRule, clone);
+				}
+			}
+		}
+		boolean saltExpected = molecule.getAttribute(ISSALT_ATR) != null;
+		if (saltExpected) {
+			deprotonateAcidIfSaltWithMetal(molecule);
+		}
+		int overallCharge = state.fragManager.getOverallCharge();
+		if (overallCharge!=0 && wordRules.size() >1){//a net charge is present! Could just mean the counterion has not been specified though
+			balanceChargeIfPossible(molecule, overallCharge, explicitStoichiometryPresent);
+		}
+		if (wordRulesWithFractionalMultipliers.size() > 0 && !chargedFractionalGroup) {
+			for (Element wordRule : molecule.getChildElements(WORDRULE_EL)) {
+				if (wordRulesWithFractionalMultipliers.contains(wordRule)) {
+					continue;
+				}
+				Element clone = state.fragManager.cloneElement(state, wordRule);
+				OpsinTools.insertAfter(wordRule, clone);
+			}
+		}
+
+	}
+
 	private boolean applyExplicitStoichiometryIfProvided(List<Element> wordRules) throws StructureBuildingException {
 		boolean explicitStoichiometryPresent =false;
 		for (Element wordRule : wordRules) {
@@ -1683,6 +1812,38 @@ class StructureBuilder {
 			}
 		}
 		return explicitStoichiometryPresent;
+	}
+	
+
+	private void deprotonateAcidIfSaltWithMetal(Element molecule) {
+		List<BuildResults> positivelyChargedComponents = new ArrayList<BuildResults>();
+		List<BuildResults> negativelyChargedComponents = new ArrayList<BuildResults>();
+		List<BuildResults> neutralComponents = new ArrayList<BuildResults>();
+		List<Element> wordRules = molecule.getChildElements(WORDRULE_ATR);
+		for (Element wordRule : wordRules) {
+			BuildResults br = new BuildResults(wordRule);
+			int charge = br.getCharge();
+			if (charge > 0) {
+				positivelyChargedComponents.add(br);
+			}
+			else if (charge < 0) {
+				negativelyChargedComponents.add(br);
+			}
+			else {
+				neutralComponents.add(br);
+			}
+		}
+		if (negativelyChargedComponents.size() == 0 && (positivelyChargedComponents.size() > 0 || getMetalsThatCanBeImplicitlyCations(molecule).size() > 0)) {
+			for (int i = neutralComponents.size() - 1; i>=0; i--) {
+				BuildResults br =neutralComponents.get(i);
+				for (int j = br.getFunctionalAtomCount() -1; j >=0; j--) {
+					Atom functionalAtom = br.getFunctionalAtom(j);
+					if (functionalAtom.getCharge() == 0 && functionalAtom.getIncomingValency() == 1){
+						functionalAtom.addChargeAndProtons(-1, -1);
+					}
+				}
+			}
+		}
 	}
 
 	/**
@@ -1704,20 +1865,7 @@ class StructureBuilder {
 		Map<Element, Integer> componentToChargeMapping = new HashMap<Element, Integer>();
 		Map<Element, BuildResults> componentToBR = new HashMap<Element, BuildResults>();
 		
-		List<Element> cationicElements = new ArrayList<Element>();
-		List<Element> elementaryAtoms = OpsinTools.getDescendantElementsWithTagNameAndAttribute(molecule, GROUP_EL, SUBTYPE_ATR, ELEMENTARYATOM_SUBTYPE_VAL);
-		for (Element elementaryAtom : elementaryAtoms) {
-			if (elementaryAtom.getAttribute(COMMONOXIDATIONSTATESANDMAX_ATR)!=null){
-				Fragment cationicFrag = elementaryAtom.getFrag();
-				if (cationicFrag.getFirstAtom().getCharge()==0){//if not 0 charge cannot be implicitly modified
-					String[] typicalOxidationStates = MATCH_COMMA.split(MATCH_COLON.split(elementaryAtom.getAttributeValue(COMMONOXIDATIONSTATESANDMAX_ATR))[0]);
-					int typicalCharge = Integer.parseInt(typicalOxidationStates[typicalOxidationStates.length-1]);
-					if (typicalCharge > cationicFrag.getFirstAtom().getBondCount()){
-						cationicElements.add(elementaryAtom);
-					}
-				}
-			}
-		}
+		List<Element> cationicElements = getMetalsThatCanBeImplicitlyCations(molecule);
 		overallCharge = setCationicElementsToTypicalCharge(cationicElements, overallCharge);
 		if (overallCharge==0){
 			return;
@@ -1777,6 +1925,24 @@ class StructureBuilder {
 				}
 			}
 		}
+	}
+
+	private List<Element> getMetalsThatCanBeImplicitlyCations(Element molecule) {
+		List<Element> cationicElements = new ArrayList<Element>();
+		List<Element> elementaryAtoms = OpsinTools.getDescendantElementsWithTagNameAndAttribute(molecule, GROUP_EL, SUBTYPE_ATR, ELEMENTARYATOM_SUBTYPE_VAL);
+		for (Element elementaryAtom : elementaryAtoms) {
+			if (elementaryAtom.getAttribute(COMMONOXIDATIONSTATESANDMAX_ATR)!=null){
+				Atom metalAtom = elementaryAtom.getFrag().getFirstAtom();
+				if (metalAtom.getCharge() == 0 && metalAtom.getProperty(Atom.OXIDATION_NUMBER) == null) {//if not 0 charge cannot be implicitly modified
+					String[] typicalOxidationStates = MATCH_COMMA.split(MATCH_COLON.split(elementaryAtom.getAttributeValue(COMMONOXIDATIONSTATESANDMAX_ATR))[0]);
+					int typicalCharge = Integer.parseInt(typicalOxidationStates[typicalOxidationStates.length-1]);
+					if (typicalCharge > metalAtom.getBondCount()){
+						cationicElements.add(elementaryAtom);
+					}
+				}
+			}
+		}
+		return cationicElements;
 	}
 
 
@@ -1868,7 +2034,7 @@ class StructureBuilder {
 		while (firstChild.getChildCount() != 0){
 			firstChild = firstChild.getChild(0);
 		}
-		if (firstChild.getName().equals(MULTIPLIER_EL)){//e.g. monochloride. Allows specification of explicit stoichiometry
+		if (firstChild.getName().equals(MULTIPLIER_EL) || firstChild.getName().equals(FRACTIONALMULTIPLIER_EL) ){//e.g. monochloride. Allows specification of explicit stoichiometry
 			return false;
 		}
 		return true;
@@ -1910,11 +2076,14 @@ class StructureBuilder {
 	 * Nasty special case to cope with oxido and related groups acting as O= or even [O-][N+]
 	 * This nasty behaviour is in generated ChemDraw names and is supported by most nameToStructure tools so it is supported here
 	 * Acting as O= notably is often correct behaviour for inorganics
+	 * 
+	 * Methionine (and the like) when substituted at the sulfur/selenium/tellurium are implicitly positively charged
 	 * @param groups
 	 */
-	private void processOxidoSpecialCase(List<Element> groups)  {
+	private void processOxidoAndMethionineSpecialCases(List<Element> groups)  {
 		for (Element group : groups) {
-			if (OXIDOLIKE_SUBTYPE_VAL.equals(group.getAttributeValue(SUBTYPE_ATR))){
+			String subType = group.getAttributeValue(SUBTYPE_ATR);
+			if (OXIDOLIKE_SUBTYPE_VAL.equals(subType)){
 				Atom oxidoAtom = group.getFrag().getFirstAtom();
 				Atom connectedAtom = oxidoAtom.getAtomNeighbours().get(0);
 				ChemEl chemEl = connectedAtom.getElement();
@@ -1941,6 +2110,19 @@ class StructureBuilder {
 							connectedAtom.addChargeAndProtons(1, 1);
 						}
 					}
+				}
+			}
+			else if (ENDININE_SUBTYPE_VAL.equals(subType) && group.getValue().contains("methion")) {
+				Fragment frag = group.getFrag();
+				Atom chalcogen = frag.getAtomByLocant("S");
+				if (chalcogen == null) {
+					chalcogen = frag.getAtomByLocant("Se");
+				}
+				if (chalcogen == null) {
+					chalcogen = frag.getAtomByLocant("Te");
+				}
+				if (chalcogen != null && chalcogen.getIncomingValency() == 3 && chalcogen.getCharge() == 0) {
+					chalcogen.addChargeAndProtons(1, 1);
 				}
 			}
 		}

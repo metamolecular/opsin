@@ -694,6 +694,16 @@ class SMILESFragmentBuilder {
 
 		verifyAndTakeIntoAccountLonePairsInAtomParities(atomList);
 		addBondStereoElements(fragment);
+		
+		if(firstCharacter == '-'){
+			fragment.addOutAtom(fragment.getFirstAtom(), 1, true);
+		}
+		else if(firstCharacter == '='){
+			fragment.addOutAtom(fragment.getFirstAtom(), 2, true);
+		}
+		else if (firstCharacter == '#'){
+			fragment.addOutAtom(fragment.getFirstAtom(), 3, true);
+		}
 
 		if(lastCharacter == '-' || lastCharacter == '=' || lastCharacter == '#') {
 			Atom lastAtom = instance.getInscopeAtom();//note that in something like C(=O)- this would be the carbon not the oxygen
@@ -706,16 +716,6 @@ class SMILESFragmentBuilder {
 			else{
 				fragment.addOutAtom(lastAtom, 1, true);
 			}
-		}
-
-		if(firstCharacter == '-'){
-			fragment.addOutAtom(fragment.getFirstAtom(), 1, true);
-		}
-		else if(firstCharacter == '='){
-			fragment.addOutAtom(fragment.getFirstAtom(), 2, true);
-		}
-		else if (firstCharacter == '#'){
-			fragment.addOutAtom(fragment.getFirstAtom(), 3, true);
 		}
 
 		for (Atom atom : atomList) {
@@ -890,25 +890,28 @@ class SMILESFragmentBuilder {
 		int charge = atom.getCharge();
 		int absoluteCharge =Math.abs(charge);
 		ChemEl chemEl = atom.getElement();
-		if (atom.hasSpareValency()){
-			Integer hwValency;
-			if (chemEl == ChemEl.C) {
-				hwValency = 4;
+		if (atom.hasSpareValency()) {
+			Integer hwValency = ValencyChecker.getHWValency(chemEl);
+			if (hwValency == null || absoluteCharge > 1) {
+				throw new StructureBuildingException(chemEl +" is not expected to be aromatic!");
 			}
-			else{
-				hwValency = ValencyChecker.getHWValency(chemEl);
-				if (hwValency == null){
-					throw new StructureBuildingException(chemEl +" is not expected to be aromatic!");
+			if (absoluteCharge != 0) {
+				Integer[] possibleVal = ValencyChecker.getPossibleValencies(chemEl, charge);
+				if (possibleVal != null && possibleVal.length > 0) {
+					hwValency = possibleVal[0];
+				}
+				else {
+					throw new StructureBuildingException(chemEl +" with charge " + charge + " is not expected to be aromatic!");
 				}
 			}
-			if (incomingValency < (hwValency + absoluteCharge)){
+			if (incomingValency < hwValency){
 				incomingValency++;
 			}
 		}
 		Integer defaultVal = ValencyChecker.getDefaultValency(chemEl);
 		if (defaultVal !=null){//s or p block element
-			if (defaultVal != incomingValency || charge !=0){		
-				if (Math.abs(incomingValency - defaultVal)==Math.abs(charge)){
+			if (defaultVal != incomingValency || charge !=0) {
+				if (Math.abs(incomingValency - defaultVal) == absoluteCharge) {
 					atom.setProtonsExplicitlyAddedOrRemoved(incomingValency - defaultVal);
 				}
 				else{
